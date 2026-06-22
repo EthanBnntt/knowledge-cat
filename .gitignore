@@ -9,3 +9,4 @@ coverage.out
 .vscode/
 *.swp
 *.swo
+.rpiv/
