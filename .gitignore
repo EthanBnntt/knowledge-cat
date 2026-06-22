@@ -1,0 +1,11 @@
+# Binary
+/know
+
+# Coverage
+coverage.out
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
