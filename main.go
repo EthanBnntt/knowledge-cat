@@ -60,10 +60,16 @@ var serveCmd = &cobra.Command{
 
 AI agents can connect to this server to read, list, search, and interact
 with the OKF bundle. Tools exposed:
+  - know_view_spec      : read the full OKF specification
   - know_list_concepts  : list concepts with optional type/tag filters
-  - know_read_concept   : read a concept by ID
-  - know_search         : full-text search across concepts
+  - know_read_concept   : read a concept by ID (supports #block-id)
+  - know_grep           : full-text search across concepts
+  - know_find_concepts  : find concepts by index entries and headings
   - know_list_types     : list available types and tags
+  - know_validate       : validate bundle conformance
+  - know_generate_index : generate index.md files
+  - know_edit_concept   : edit a concept's body
+  - know_read_log       : read the bundle's change log
 
 Set the OKF_BUNDLE environment variable or use --bundle to specify the bundle path.`,
 	RunE: func(cmd *cobra.Command, args []string) error {

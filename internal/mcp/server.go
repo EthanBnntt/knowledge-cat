@@ -49,7 +49,7 @@ func Run(cfg ServerConfig) error {
 		},
 		&mcp.ServerOptions{
 			Instructions: fmt.Sprintf(
-				"Serving OKF bundle at %s with %d concepts. "+
+				"If you are unfamiliar with the Open Knowledge Format (OKF), call know_view_spec first to read the full specification. Serving OKF bundle at %s with %d concepts. "+
 					"Use know_list_concepts for an overview, "+
 					"know_read_concept to read a concept by ID (supports #block-id, e.g. 'tables/badges#schema'), "+
 					"know_grep for full-text search within concepts (returns block context), "+
@@ -126,6 +126,14 @@ func registerTools(server *mcp.Server, b *knowledge_cat.Bundle) {
 			Description: "Validate the OKF bundle against the v0.1 spec. Checks that every non-reserved .md file has parseable YAML frontmatter with a non-empty 'type' field, and that index.md and log.md files follow their respective structures (§6, §7). Returns conformance errors, warnings, and informational notes.",
 		},
 		makeValidateHandler(b),
+	)
+
+	mcp.AddTool(server,
+		&mcp.Tool{
+			Name:        "know_view_spec",
+			Description: "View the full Open Knowledge Format (OKF) v0.1 specification. Returns the complete spec — use this to understand the bundle format, frontmatter fields, concept structure, validation rules, and conventions before working with the bundle.",
+		},
+		makeViewSpecHandler(),
 	)
 
 	mcp.AddTool(server,
@@ -639,6 +647,17 @@ func makeReadLogHandler(b *knowledge_cat.Bundle) mcp.ToolHandlerFor[struct{}, re
 		}
 
 		return nil, readLogOutput{Entries: items}, nil
+	}
+}
+
+// viewSpecOutput is the result of know_view_spec.
+type viewSpecOutput struct {
+	Spec string `json:"spec"`
+}
+
+func makeViewSpecHandler() mcp.ToolHandlerFor[struct{}, viewSpecOutput] {
+	return func(_ context.Context, _ *mcp.CallToolRequest, _ struct{}) (*mcp.CallToolResult, viewSpecOutput, error) {
+		return nil, viewSpecOutput{Spec: knowledge_cat.Spec}, nil
 	}
 }
 
