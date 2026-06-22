@@ -26,8 +26,8 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"know/internal/mcp"
-	"know/internal/knowledge_cat"
+	"github.com/EthanBnntt/knowledge-cat/internal/mcp"
+	"github.com/EthanBnntt/knowledge-cat/internal/knowledge_cat"
 )
 
 func main() {

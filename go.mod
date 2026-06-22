@@ -1,4 +1,4 @@
-module know
+module github.com/EthanBnntt/knowledge-cat
 
 go 1.26.4
 

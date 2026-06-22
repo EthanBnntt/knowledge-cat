@@ -11,7 +11,7 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
-	"know/internal/knowledge_cat"
+	"github.com/EthanBnntt/knowledge-cat/internal/knowledge_cat"
 )
 
 // ServerConfig holds configuration for the MCP server.
