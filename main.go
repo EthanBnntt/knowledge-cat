@@ -61,6 +61,7 @@ var serveCmd = &cobra.Command{
 AI agents can connect to this server to read, list, search, and interact
 with the OKF bundle. Tools exposed:
   - know_view_spec      : read the full OKF specification
+  - know_switch_bundle  : switch to a different bundle at runtime
   - know_list_concepts  : list concepts with optional type/tag filters
   - know_read_concept   : read a concept by ID (supports #block-id)
   - know_grep           : full-text search across concepts
