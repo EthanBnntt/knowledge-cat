@@ -11,7 +11,7 @@ operations consumed by both `cmd/know` (CLI) and `internal/mcp` (MCP server).
 - Standard library only otherwise (`os`, `path/filepath`, `strings`, `regexp`, `time`, `sort`)
 
 ## Consumers
-- **`cmd/know/main.go`** — All Cobra commands call into package functions and `*Bundle` methods
+- **`main.go`** — All Cobra commands call into package functions and `*Bundle` methods
 - **`internal/mcp/server.go`** — MCP tool handlers delegate to the same API surface
 
 ## Module Structure
@@ -100,7 +100,7 @@ b.searchConceptHeadings(query, resultMap) // Phase 2: scan concept headings
 3. **Normalize inputs early** — lowercase search queries, `filepath.Abs` paths, trim strings
 4. **Wrap errors**: `fmt.Errorf("operation: %w", err)` with consistent prefix
 5. **Follow naming**: `VerbNoun` for exported; lowercase `verbNoun` for helpers; pre-compile regexes at package level as `var`
-6. **Add to `cmd/know/main.go`** as a new `cobra.Command` (see root CLAUDE.md) and/or `internal/mcp/server.go` as a new `mcp.ToolHandlerFor[I,O]`
+6. **Add to `main.go`** as a new `cobra.Command` (see root CLAUDE.md) and/or `internal/mcp/server.go` as a new `mcp.ToolHandlerFor[I,O]`
 </important>
 
 <important if="you are adding a new validation check">

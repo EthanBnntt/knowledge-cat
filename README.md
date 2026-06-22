@@ -128,9 +128,9 @@ Or set the `OKF_BUNDLE` environment variable:
 ## Building from Source
 
 ```bash
-go build -o know ./cmd/know
+go build -o know .
 # Optionally install to GOPATH
-go install ./cmd/know
+go install .
 ```
 
 ## License

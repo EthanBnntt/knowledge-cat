@@ -10,7 +10,7 @@ Single-module Go project with idiomatic `cmd/` + `internal/` layout. Two consume
 layers (CLI and MCP) share one domain package.
 
 ```
-cmd/know/main.go          ── CLI entry (Cobra commands)
+main.go          ── CLI entry (Cobra commands)
 internal/mcp/server.go   ── MCP server (tools + resources)
          │         └──────────────────┐
          ▼                            ▼
@@ -18,15 +18,15 @@ internal/mcp/server.go   ── MCP server (tools + resources)
 ```
 
 - **`internal/knowledge_cat/`** — Core domain (see its CLAUDE.md for patterns and workflows)
-- **`cmd/know/main.go`** — All Cobra command definitions in one file. Each command calls `openBundle()` or `resolveBundlePath()` then delegates to `internal/knowledge_cat`
+- **`main.go`** — All Cobra command definitions in one file. Each command calls `openBundle()` or `resolveBundlePath()` then delegates to `internal/knowledge_cat`
 - **`internal/mcp/server.go`** — MCP server setup, tool registration, resource templates. Tool handlers are factory functions returning `mcp.ToolHandlerFor[Input, Output]`
 
 ## Commands
 | Purpose | Command |
 |---------|---------|
-| Build | `go build -o know ./cmd/know` |
+| Build | `go build -o know .` |
 | Test | `go test ./...` |
-| Run CLI | `go run ./cmd/know <command> -b /path/to/bundle` |
+| Run CLI | `go run . <command> -b /path/to/bundle` |
 | Lint/format | `goimports`, `gofumpt` (Neovim gopls LSP) |
 
 <important if="you are adding a new CLI command">
