@@ -1,8 +1,16 @@
-# know — CLI and MCP Server for Open Knowledge Format
+# knowledge cat(ologue)
 
-`know` is a command-line tool and [Model Context Protocol (MCP)](https://modelcontextprotocol.io/) server for reading, searching, and managing [Open Knowledge Format (OKF)](https://github.com/GoogleCloudPlatform/knowledge-catalog/blob/main/okf/SPEC.md) bundles.
+```
+  /\_/\
+ ( o.o )  ~meow~
+  > ^ <
+```
 
-OKF is an open specification (v0.1) for representing organizational knowledge as directories of markdown files with YAML frontmatter — tables, metrics, APIs, playbooks, and more.
+**`know`** — a CLI tool and [Model Context Protocol (MCP)](https://modelcontextprotocol.io/) server
+for reading, searching, and managing [Open Knowledge Format (OKF)](https://github.com/GoogleCloudPlatform/knowledge-catalog/blob/main/okf/SPEC.md) bundles.
+
+OKF is an open specification (v0.1) for representing organizational knowledge as
+directories of markdown files with YAML frontmatter — tables, metrics, APIs, playbooks, and more.
 
 ## Quick Start
 
