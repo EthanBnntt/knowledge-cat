@@ -14,6 +14,15 @@ import (
 	"github.com/EthanBnntt/knowledge-cat/internal/knowledge_cat"
 )
 
+// bundleHandle holds the currently active bundle, safe for concurrent swaps.
+type bundleHandle struct {
+	b    *knowledge_cat.Bundle
+	path string
+}
+
+func (bh *bundleHandle) Bundle() *knowledge_cat.Bundle { return bh.b }
+func (bh *bundleHandle) Path() string                   { return bh.path }
+
 // ServerConfig holds configuration for the MCP server.
 type ServerConfig struct {
 	// BundlePath is the path to the OKF bundle to serve.
@@ -41,6 +50,7 @@ func Run(cfg ServerConfig) error {
 	if err != nil {
 		return fmt.Errorf("failed to open OKF bundle at %s: %w", bundlePath, err)
 	}
+	bh := &bundleHandle{b: b, path: bundlePath}
 
 	server := mcp.NewServer(
 		&mcp.Implementation{
@@ -49,35 +59,35 @@ func Run(cfg ServerConfig) error {
 		},
 		&mcp.ServerOptions{
 			Instructions: fmt.Sprintf(
-				"If you are unfamiliar with the Open Knowledge Format (OKF), call know_view_spec first to read the full specification. Serving OKF bundle at %s with %d concepts. "+
+				"If you are unfamiliar with the Open Knowledge Format (OKF), call know_view_spec first to read the full specification. Serving OKF bundle at %s with %d concepts. To switch to a different bundle, use know_switch_bundle. "+
 					"Use know_list_concepts for an overview, "+
 					"know_read_concept to read a concept by ID (supports #block-id, e.g. 'tables/badges#schema'), "+
 					"know_grep for full-text search within concepts (returns block context), "+
 					"know_find_concepts to find concepts by index/headings, and "+
 					"know_list_types to see available types and tags.",
-				bundlePath, len(b.Concepts),
+				bundlePath, len(bh.Bundle().Concepts),
 			),
 		},
 	)
 
 	// Register tools.
-	registerTools(server, b)
+	registerTools(server, bh)
 
 	// Register resources.
-	registerResources(server, b)
+	registerResources(server, bh)
 
 	// Run over stdio.
 	return server.Run(context.Background(), &mcp.StdioTransport{})
 }
 
 // registerTools adds all OKF tools to the server.
-func registerTools(server *mcp.Server, b *knowledge_cat.Bundle) {
+func registerTools(server *mcp.Server, bh *bundleHandle) {
 	mcp.AddTool(server,
 		&mcp.Tool{
 			Name:        "know_list_concepts",
 			Description: "List concepts in the OKF bundle, optionally filtered by type and/or tags. Returns concept ID, type, title, and description — use know_read_concept to get the full body.",
 		},
-		makeListConceptsHandler(b),
+		makeListConceptsHandler(bh),
 	)
 
 	mcp.AddTool(server,
@@ -85,7 +95,7 @@ func registerTools(server *mcp.Server, b *knowledge_cat.Bundle) {
 			Name:        "know_read_concept",
 			Description: "Read a concept from the OKF bundle by its ID. Supports block addressing: use 'tables/badges#schema' to read just the Schema block. Returns frontmatter fields and markdown body (or block content if a #block-id is specified).",
 		},
-		makeReadConceptHandler(b),
+		makeReadConceptHandler(bh),
 	)
 
 	mcp.AddTool(server,
@@ -93,7 +103,7 @@ func registerTools(server *mcp.Server, b *knowledge_cat.Bundle) {
 			Name:        "know_edit_concept",
 			Description: "Edit a concept's body by replacing existing text with new text. The edit is logged to the bundle's log.md with the optional description. Works like a find-and-replace: provide the exact text to find and its replacement.",
 		},
-		makeEditConceptHandler(b),
+		makeEditConceptHandler(bh),
 	)
 
 	mcp.AddTool(server,
@@ -101,7 +111,7 @@ func registerTools(server *mcp.Server, b *knowledge_cat.Bundle) {
 			Name:        "know_find_concepts",
 			Description: "Find concepts by searching the bundle's index.md entries and concept markdown headings. Returns matches grouped by concept — including which index entries and which section headings matched. Use this to discover concepts by their structural metadata: the categories they're listed under or section headings like 'Schema' or 'Examples'. For full-text search within concept bodies, use know_grep instead.",
 		},
-		makeFindConceptsHandler(b),
+		makeFindConceptsHandler(bh),
 	)
 
 	mcp.AddTool(server,
@@ -109,7 +119,7 @@ func registerTools(server *mcp.Server, b *knowledge_cat.Bundle) {
 			Name:        "know_grep",
 			Description: "Full-text search within concept bodies. Returns matches with block context (block_id field) for heading-delimited sections. Performs case-insensitive text search on titles, descriptions, and body content. Optionally filter by concept types. For structured concept discovery by index entries and headings, use know_find_concepts instead.",
 		},
-		makeGrepHandler(b),
+		makeGrepHandler(bh),
 	)
 
 	mcp.AddTool(server,
@@ -117,7 +127,7 @@ func registerTools(server *mcp.Server, b *knowledge_cat.Bundle) {
 			Name:        "know_list_types",
 			Description: "List all unique concept types and tags used in the OKF bundle. Useful for discovery — see what kinds of concepts are available.",
 		},
-		makeListTypesHandler(b),
+		makeListTypesHandler(bh),
 	)
 
 	mcp.AddTool(server,
@@ -125,7 +135,7 @@ func registerTools(server *mcp.Server, b *knowledge_cat.Bundle) {
 			Name:        "know_validate",
 			Description: "Validate the OKF bundle against the v0.1 spec. Checks that every non-reserved .md file has parseable YAML frontmatter with a non-empty 'type' field, and that index.md and log.md files follow their respective structures (§6, §7). Returns conformance errors, warnings, and informational notes.",
 		},
-		makeValidateHandler(b),
+		makeValidateHandler(bh),
 	)
 
 	mcp.AddTool(server,
@@ -135,13 +145,20 @@ func registerTools(server *mcp.Server, b *knowledge_cat.Bundle) {
 		},
 		makeViewSpecHandler(),
 	)
+	mcp.AddTool(server,
+		&mcp.Tool{
+			Name:        "know_switch_bundle",
+			Description: "Switch the active bundle to a different directory. Provide the path to an OKF bundle directory. After switching, all other tools (list, read, grep, find, etc.) will operate on the new bundle. Use this to work with multiple bundles without restarting the server.",
+		},
+		makeSwitchBundleHandler(bh),
+	)
 
 	mcp.AddTool(server,
 		&mcp.Tool{
 			Name:        "know_generate_index",
 			Description: "Generate or regenerate index.md files for directories in the OKF bundle. Scans concept documents and subdirectories, groups them by type, and writes index.md files following the OKF spec §6 format. By default, existing index.md files are NOT overwritten.",
 		},
-		makeGenerateIndexHandler(b),
+		makeGenerateIndexHandler(bh),
 	)
 
 	mcp.AddTool(server,
@@ -149,7 +166,7 @@ func registerTools(server *mcp.Server, b *knowledge_cat.Bundle) {
 			Name:        "know_read_log",
 			Description: "Read the bundle's log.md file — returns the chronological history of edits, creations, and other changes. Each entry includes a date, action label, and description.",
 		},
-		makeReadLogHandler(b),
+		makeReadLogHandler(bh),
 	)
 }
 
@@ -285,13 +302,13 @@ type listTypesOutput struct {
 
 // --- Tool handler constructors ---
 
-func makeListConceptsHandler(b *knowledge_cat.Bundle) mcp.ToolHandlerFor[listConceptsInput, listConceptsOutput] {
+func makeListConceptsHandler(bh *bundleHandle) mcp.ToolHandlerFor[listConceptsInput, listConceptsOutput] {
 	return func(_ context.Context, _ *mcp.CallToolRequest, input listConceptsInput) (*mcp.CallToolResult, listConceptsOutput, error) {
 		filter := &knowledge_cat.ListFilter{
 			Type: input.Type,
 			Tags: input.Tags,
 		}
-		concepts := b.List(filter)
+		concepts := bh.Bundle().List(filter)
 		summaries := make([]conceptSummary, len(concepts))
 		for i, c := range concepts {
 			summaries[i] = conceptSummary{
@@ -307,11 +324,11 @@ func makeListConceptsHandler(b *knowledge_cat.Bundle) mcp.ToolHandlerFor[listCon
 	}
 }
 
-func makeReadConceptHandler(b *knowledge_cat.Bundle) mcp.ToolHandlerFor[readConceptInput, conceptFull] {
+func makeReadConceptHandler(bh *bundleHandle) mcp.ToolHandlerFor[readConceptInput, conceptFull] {
 	return func(_ context.Context, _ *mcp.CallToolRequest, input readConceptInput) (*mcp.CallToolResult, conceptFull, error) {
 		conceptID, blockID := knowledge_cat.ParseConceptRef(input.ID)
 
-		c := b.GetConcept(conceptID)
+		c := bh.Bundle().GetConcept(conceptID)
 		if c == nil {
 			return &mcp.CallToolResult{
 				Content: []mcp.Content{
@@ -380,9 +397,9 @@ func makeReadConceptHandler(b *knowledge_cat.Bundle) mcp.ToolHandlerFor[readConc
 	}
 }
 
-func makeEditConceptHandler(b *knowledge_cat.Bundle) mcp.ToolHandlerFor[editConceptInput, editConceptOutput] {
+func makeEditConceptHandler(bh *bundleHandle) mcp.ToolHandlerFor[editConceptInput, editConceptOutput] {
 	return func(_ context.Context, _ *mcp.CallToolRequest, input editConceptInput) (*mcp.CallToolResult, editConceptOutput, error) {
-		c, err := knowledge_cat.EditConcept(b.Path, input.ID, input.OldText, input.NewText, input.Description)
+		c, err := knowledge_cat.EditConcept(bh.Path(), input.ID, input.OldText, input.NewText, input.Description)
 		if err != nil {
 			return &mcp.CallToolResult{
 				Content: []mcp.Content{
@@ -400,9 +417,9 @@ func makeEditConceptHandler(b *knowledge_cat.Bundle) mcp.ToolHandlerFor[editConc
 	}
 }
 
-func makeFindConceptsHandler(b *knowledge_cat.Bundle) mcp.ToolHandlerFor[findConceptsInput, findConceptsOutput] {
+func makeFindConceptsHandler(bh *bundleHandle) mcp.ToolHandlerFor[findConceptsInput, findConceptsOutput] {
 	return func(_ context.Context, _ *mcp.CallToolRequest, input findConceptsInput) (*mcp.CallToolResult, findConceptsOutput, error) {
-		results := b.FindConcepts(input.Query)
+		results := bh.Bundle().FindConcepts(input.Query)
 
 		out := findConceptsOutput{
 			Query:   results.Query,
@@ -440,9 +457,9 @@ func makeFindConceptsHandler(b *knowledge_cat.Bundle) mcp.ToolHandlerFor[findCon
 	}
 }
 
-func makeGrepHandler(b *knowledge_cat.Bundle) mcp.ToolHandlerFor[searchInput, searchOutput] {
+func makeGrepHandler(bh *bundleHandle) mcp.ToolHandlerFor[searchInput, searchOutput] {
 	return func(_ context.Context, _ *mcp.CallToolRequest, input searchInput) (*mcp.CallToolResult, searchOutput, error) {
-		results := b.Search(input.Query, input.Types)
+		results := bh.Bundle().Search(input.Query, input.Types)
 		hits := make([]searchHit, len(results))
 		for i, r := range results {
 			hits[i] = searchHit{
@@ -461,9 +478,9 @@ func makeGrepHandler(b *knowledge_cat.Bundle) mcp.ToolHandlerFor[searchInput, se
 	}
 }
 
-func makeListTypesHandler(b *knowledge_cat.Bundle) mcp.ToolHandlerFor[struct{}, listTypesOutput] {
+func makeListTypesHandler(bh *bundleHandle) mcp.ToolHandlerFor[struct{}, listTypesOutput] {
 	return func(_ context.Context, _ *mcp.CallToolRequest, _ struct{}) (*mcp.CallToolResult, listTypesOutput, error) {
-		types, tags := b.ListTypes()
+		types, tags := bh.Bundle().ListTypes()
 		return nil, listTypesOutput{
 			Types: types,
 			Tags:  tags,
@@ -471,9 +488,9 @@ func makeListTypesHandler(b *knowledge_cat.Bundle) mcp.ToolHandlerFor[struct{}, 
 	}
 }
 
-func makeValidateHandler(b *knowledge_cat.Bundle) mcp.ToolHandlerFor[struct{}, validateOutput] {
+func makeValidateHandler(bh *bundleHandle) mcp.ToolHandlerFor[struct{}, validateOutput] {
 	return func(_ context.Context, _ *mcp.CallToolRequest, _ struct{}) (*mcp.CallToolResult, validateOutput, error) {
-		result, err := knowledge_cat.Validate(b.Path)
+		result, err := knowledge_cat.Validate(bh.Path())
 		if err != nil {
 			return &mcp.CallToolResult{
 				Content: []mcp.Content{
@@ -535,9 +552,9 @@ type generateIndexOutput struct {
 	Message string   `json:"message"`
 }
 
-func makeGenerateIndexHandler(b *knowledge_cat.Bundle) mcp.ToolHandlerFor[generateIndexInput, generateIndexOutput] {
+func makeGenerateIndexHandler(bh *bundleHandle) mcp.ToolHandlerFor[generateIndexInput, generateIndexOutput] {
 	return func(_ context.Context, _ *mcp.CallToolRequest, input generateIndexInput) (*mcp.CallToolResult, generateIndexOutput, error) {
-		written, err := knowledge_cat.GenerateIndex(b.Path, input.Overwrite, input.Directory)
+		written, err := knowledge_cat.GenerateIndex(bh.Path(), input.Overwrite, input.Directory)
 		if err != nil {
 			return &mcp.CallToolResult{
 				Content: []mcp.Content{
@@ -562,7 +579,7 @@ func makeGenerateIndexHandler(b *knowledge_cat.Bundle) mcp.ToolHandlerFor[genera
 // registerResources adds OKF concept resources to the server.
 // Concepts are exposed as resources under the know:// URI scheme with a
 // URI template: know://{+conceptID}
-func registerResources(server *mcp.Server, b *knowledge_cat.Bundle) {
+func registerResources(server *mcp.Server, bh *bundleHandle) {
 	server.AddResourceTemplate(
 		&mcp.ResourceTemplate{
 			URITemplate: "know://{+conceptID}",
@@ -570,13 +587,13 @@ func registerResources(server *mcp.Server, b *knowledge_cat.Bundle) {
 			Description: "An Open Knowledge Format concept document, identified by its concept ID (path without .md suffix).",
 			MIMEType:    "text/markdown",
 		},
-		makeResourceHandler(b),
+		makeResourceHandler(bh),
 	)
 }
 
 // makeResourceHandler creates a ResourceHandler that reads a concept by URI.
 // The URI scheme is know://<conceptID>, e.g., know://tables/badges
-func makeResourceHandler(b *knowledge_cat.Bundle) mcp.ResourceHandler {
+func makeResourceHandler(bh *bundleHandle) mcp.ResourceHandler {
 	return func(_ context.Context, req *mcp.ReadResourceRequest) (*mcp.ReadResourceResult, error) {
 		uri := req.Params.URI
 
@@ -588,7 +605,7 @@ func makeResourceHandler(b *knowledge_cat.Bundle) mcp.ResourceHandler {
 
 		conceptID, blockID := knowledge_cat.ParseConceptRef(conceptID)
 
-		c := b.GetConcept(conceptID)
+		c := bh.Bundle().GetConcept(conceptID)
 		if c == nil {
 			return nil, mcp.ResourceNotFoundError(uri)
 		}
@@ -625,9 +642,9 @@ type logEntryItem struct {
 	Description string `json:"description"`
 }
 
-func makeReadLogHandler(b *knowledge_cat.Bundle) mcp.ToolHandlerFor[struct{}, readLogOutput] {
+func makeReadLogHandler(bh *bundleHandle) mcp.ToolHandlerFor[struct{}, readLogOutput] {
 	return func(_ context.Context, _ *mcp.CallToolRequest, _ struct{}) (*mcp.CallToolResult, readLogOutput, error) {
-		entries, err := knowledge_cat.ReadLog(b.Path)
+		entries, err := knowledge_cat.ReadLog(bh.Path())
 		if err != nil {
 			return &mcp.CallToolResult{
 				Content: []mcp.Content{
@@ -658,6 +675,40 @@ type viewSpecOutput struct {
 func makeViewSpecHandler() mcp.ToolHandlerFor[struct{}, viewSpecOutput] {
 	return func(_ context.Context, _ *mcp.CallToolRequest, _ struct{}) (*mcp.CallToolResult, viewSpecOutput, error) {
 		return nil, viewSpecOutput{Spec: knowledge_cat.Spec}, nil
+	}
+}
+
+// switchBundleInput is the input for know_switch_bundle.
+type switchBundleInput struct {
+	// Path is the absolute or relative path to the OKF bundle directory.
+	Path string `json:"path" jsonschema:"required, path to the OKF bundle directory"`
+}
+
+// switchBundleOutput is the result of know_switch_bundle.
+type switchBundleOutput struct {
+	Path     string `json:"path"`
+	Concepts int    `json:"concepts"`
+	Message  string `json:"message"`
+}
+
+func makeSwitchBundleHandler(bh *bundleHandle) mcp.ToolHandlerFor[switchBundleInput, switchBundleOutput] {
+	return func(_ context.Context, _ *mcp.CallToolRequest, input switchBundleInput) (*mcp.CallToolResult, switchBundleOutput, error) {
+		b, err := knowledge_cat.Open(input.Path)
+		if err != nil {
+			return &mcp.CallToolResult{
+				Content: []mcp.Content{
+					&mcp.TextContent{Text: fmt.Sprintf("Failed to open bundle at %s: %v", input.Path, err)},
+				},
+				IsError: true,
+			}, switchBundleOutput{}, nil
+		}
+		bh.b = b
+		bh.path = input.Path
+		return nil, switchBundleOutput{
+			Path:     input.Path,
+			Concepts: len(b.Concepts),
+			Message:  fmt.Sprintf("Switched to bundle at %s with %d concepts.", input.Path, len(b.Concepts)),
+		}, nil
 	}
 }
 
