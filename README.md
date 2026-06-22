@@ -12,6 +12,14 @@ for reading, searching, and managing [Open Knowledge Format (OKF)](https://githu
 OKF is an open specification (v0.1) for representing organizational knowledge as
 directories of markdown files with YAML frontmatter — tables, metrics, APIs, playbooks, and more.
 
+## Install
+
+```bash
+go install github.com/EthanBnntt/knowledge-cat@latest
+```
+
+Requires Go 1.26.4+.
+
 ## Quick Start
 
 ```bash
@@ -65,6 +73,7 @@ When running as an MCP server (`know serve`), the following tools are exposed:
 
 | Tool | Description |
 |------|-------------|
+| `know_view_spec` | View the full OKF v0.1 specification |
 | `know_list_concepts` | List concepts with optional type/tag filters |
 | `know_read_concept` | Read a concept or block (`id#block-id`) |
 | `know_edit_concept` | Edit a concept's body (auto-logged to log.md) |
@@ -77,6 +86,8 @@ When running as an MCP server (`know serve`), the following tools are exposed:
 **Resources:** Concepts are also exposed as MCP resources under the `know://{+conceptID}` URI scheme.
 
 ### Configuring MCP in Claude
+
+The server instructs agents to call `know_view_spec` first if they're unfamiliar with OKF, then use the other tools to explore the bundle.
 
 Add to your Claude Desktop or Code config:
 
@@ -124,14 +135,6 @@ Or set the `OKF_BUNDLE` environment variable:
 - Stack Overflow ([GoogleCloudPlatform/knowledge-catalog](https://github.com/GoogleCloudPlatform/knowledge-catalog))
 - GA4 E-Commerce
 - Crypto Bitcoin
-
-## Building from Source
-
-```bash
-go build -o know .
-# Optionally install to GOPATH
-go install .
-```
 
 ## License
 
