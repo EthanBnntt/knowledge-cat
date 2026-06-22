@@ -155,6 +155,14 @@ func registerTools(server *mcp.Server, bh *bundleHandle) {
 
 	mcp.AddTool(server,
 		&mcp.Tool{
+			Name:        "know_create_concept",
+			Description: "Create a new concept document in the bundle. Provide the concept ID (path within the bundle, e.g. 'tables/orders'), a type (required), and optional title, description, tags, and markdown body. The concept is written to disk and logged. Use know_edit_concept to modify an existing concept.",
+		},
+		makeCreateConceptHandler(bh),
+	)
+
+	mcp.AddTool(server,
+		&mcp.Tool{
 			Name:        "know_generate_index",
 			Description: "Generate or regenerate index.md files for directories in the OKF bundle. Scans concept documents and subdirectories, groups them by type, and writes index.md files following the OKF spec §6 format. By default, existing index.md files are NOT overwritten.",
 		},
@@ -708,6 +716,52 @@ func makeSwitchBundleHandler(bh *bundleHandle) mcp.ToolHandlerFor[switchBundleIn
 			Path:     input.Path,
 			Concepts: len(b.Concepts),
 			Message:  fmt.Sprintf("Switched to bundle at %s with %d concepts.", input.Path, len(b.Concepts)),
+		}, nil
+	}
+}
+
+// createConceptInput is the input for know_create_concept.
+type createConceptInput struct {
+	// ID is the concept identifier (path within the bundle, e.g. "tables/orders").
+	ID string `json:"id" jsonschema:"required, path of the new concept within the bundle (e.g. 'tables/orders')"`
+	// Type is the concept type (required, e.g. "package", "architecture", "metric").
+	Type string `json:"type" jsonschema:"required, the concept type (e.g. 'package', 'architecture', 'metric')"`
+	// Title is the optional display name for the concept.
+	Title string `json:"title,omitempty" jsonschema:"optional display title"`
+	// Description is an optional one-line summary.
+	Description string `json:"description,omitempty" jsonschema:"optional one-line description"`
+	// Resource is an optional canonical URI for the underlying asset.
+	Resource string `json:"resource,omitempty" jsonschema:"optional canonical URI"`
+	// Tags are optional categorization tags.
+	Tags []string `json:"tags,omitempty" jsonschema:"optional list of tags"`
+	// Body is the markdown body content.
+	Body string `json:"body,omitempty" jsonschema:"markdown body content for the concept"`
+}
+
+// createConceptOutput is the result of know_create_concept.
+type createConceptOutput struct {
+	ID      string `json:"id"`
+	Type    string `json:"type"`
+	Title   string `json:"title"`
+	Message string `json:"message"`
+}
+
+func makeCreateConceptHandler(bh *bundleHandle) mcp.ToolHandlerFor[createConceptInput, createConceptOutput] {
+	return func(_ context.Context, _ *mcp.CallToolRequest, input createConceptInput) (*mcp.CallToolResult, createConceptOutput, error) {
+		c, err := knowledge_cat.CreateConcept(bh.Path(), input.ID, input.Type, input.Title, input.Description, input.Resource, input.Tags, input.Body)
+		if err != nil {
+			return &mcp.CallToolResult{
+				Content: []mcp.Content{
+					&mcp.TextContent{Text: fmt.Sprintf("Create failed: %v", err)},
+				},
+				IsError: true,
+			}, createConceptOutput{}, nil
+		}
+		return nil, createConceptOutput{
+			ID:      c.ID,
+			Type:    c.Type,
+			Title:   c.Title,
+			Message: fmt.Sprintf("Created concept %q (%s). Logged to log.md.", c.ID, c.Type),
 		}, nil
 	}
 }

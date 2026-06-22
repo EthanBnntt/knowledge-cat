@@ -258,6 +258,70 @@ func EditConcept(bundlePath, conceptID, oldText, newText, description string) (*
 	return c, nil
 }
 
+// CreateConcept creates a new concept document in the bundle.
+// The conceptID is the path within the bundle (without .md suffix, e.g. "tables/orders").
+// conceptType is required; all other fields are optional.
+// The concept is written to disk, logged, and the bundle is re-opened to
+// return the parsed result. Returns an error if a concept already exists at
+// the given path or if the conceptID would collide with a reserved filename.
+func CreateConcept(bundlePath, conceptID, conceptType, title, description, resource string, tags []string, body string) (*Concept, error) {
+	// Validate concept ID.
+	if conceptID == "" {
+		return nil, fmt.Errorf("create concept: concept ID is required")
+	}
+	if conceptType == "" {
+		return nil, fmt.Errorf("create concept %s: type is required", conceptID)
+	}
+
+	// Check reserved filenames.
+	filename := filepath.Base(conceptID) + ".md"
+	if isReserved(filename) {
+		return nil, fmt.Errorf("create concept: %q is a reserved filename (index.md, log.md)", filename)
+	}
+
+	// Check it doesn't already exist.
+	targetPath := filepath.Join(bundlePath, conceptID+".md")
+	if _, err := os.Stat(targetPath); err == nil {
+		return nil, fmt.Errorf("create concept: %s already exists (use edit to modify)", conceptID)
+	}
+
+	c := &Concept{
+		ID:          conceptID,
+		Type:        conceptType,
+		Title:       title,
+		Description: description,
+		Resource:    resource,
+		Tags:        tags,
+		Timestamp:   time.Now(),
+		Body:        strings.TrimSpace(body),
+		Links:       extractLinks(body),
+	}
+
+	if err := WriteConcept(bundlePath, c); err != nil {
+		return nil, fmt.Errorf("create concept %s: %w", conceptID, err)
+	}
+
+	// Log the creation.
+	logDesc := description
+	if logDesc == "" {
+		if title != "" {
+			logDesc = fmt.Sprintf("Created [%s](/%s.md) (%s).", title, conceptID, conceptType)
+		} else {
+			logDesc = fmt.Sprintf("Created [%s](/%s.md) (%s).", conceptID, conceptID, conceptType)
+		}
+	}
+	logEntry := LogEntry{
+		Date:        time.Now(),
+		Action:      "Creation",
+		Description: logDesc,
+	}
+	if err := AppendLog(bundlePath, logEntry); err != nil {
+		return c, fmt.Errorf("create concept %s: saved but failed to update log: %w", conceptID, err)
+	}
+
+	return c, nil
+}
+
 // isReserved returns true if filename is a reserved file (index.md, log.md).
 func isReserved(filename string) bool {
 	return reservedFiles[filename]

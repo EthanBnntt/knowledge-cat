@@ -62,6 +62,7 @@ AI agents can connect to this server to read, list, search, and interact
 with the OKF bundle. Tools exposed:
   - know_view_spec      : read the full OKF specification
   - know_switch_bundle  : switch to a different bundle at runtime
+  - know_create_concept : create a new concept document
   - know_list_concepts  : list concepts with optional type/tag filters
   - know_read_concept   : read a concept by ID (supports #block-id)
   - know_grep           : full-text search across concepts
@@ -165,6 +166,61 @@ var grepCmd = &cobra.Command{
 		}
 		return nil
 	},
+}
+
+var (
+	createType        string
+	createTitle       string
+	createDescription string
+	createResource    string
+	createTags        []string
+)
+
+var createCmd = &cobra.Command{
+	Use:   "create <concept-id>",
+	Short: "Create a new concept in the bundle",
+	Long: `Create a new concept document in the OKF bundle.
+
+Requires --type. Supports --title, --description, --resource, --tags, and --body
+(or reads body from stdin). The concept is written to disk and logged to log.md.
+
+Examples:
+  know create tables/orders --type "BigQuery Table" --title "Orders" --body "# Schema\n..."
+  echo "# Schema\n..." | know create tables/orders --type "BigQuery Table"`,
+	Args: cobra.ExactArgs(1),
+	RunE: func(cmd *cobra.Command, args []string) error {
+		path, err := resolveBundlePath()
+		if err != nil {
+			return err
+		}
+
+		// Read body from --body flag or stdin.
+		body := createBody
+		if body == "" && !isPiped() {
+			// Neither flag nor stdin — that's fine, body can be empty.
+		}
+		if body == "" && isPiped() {
+			data, err := os.ReadFile(os.Stdin.Name())
+			if err == nil {
+				body = string(data)
+			}
+		}
+
+		c, err := knowledge_cat.CreateConcept(path, args[0], createType, createTitle, createDescription, createResource, createTags, body)
+		if err != nil {
+			return err
+		}
+
+		fmt.Printf("Created concept %q (%s). Logged to log.md.\n", c.ID, c.Type)
+		return nil
+	},
+}
+
+var createBody string
+
+func isPiped() bool {
+	fi, _ := os.Stdin.Stat()
+	return fi.Mode()&os.ModeCharDevice == 0
 }
 
 var editCmd = &cobra.Command{
@@ -387,10 +443,19 @@ func init() {
 	editCmd.Flags().StringVarP(&editDescription, "description", "d", "", "Optional description of the edit (logged to log.md)")
 	editCmd.MarkFlagRequired("old")
 	editCmd.MarkFlagRequired("new")
+
+	createCmd.Flags().StringVar(&createType, "type", "", "Concept type (required, e.g. 'package', 'metric')")
+	createCmd.Flags().StringVar(&createTitle, "title", "", "Display title")
+	createCmd.Flags().StringVar(&createDescription, "description", "", "One-line description")
+	createCmd.Flags().StringVar(&createResource, "resource", "", "Canonical URI for the underlying asset")
+	createCmd.Flags().StringSliceVar(&createTags, "tags", nil, "Comma-separated tags")
+	createCmd.Flags().StringVar(&createBody, "body", "", "Markdown body content (reads from stdin if not provided)")
+	createCmd.MarkFlagRequired("type")
 	generateIndexCmd.Flags().BoolVar(&genOverwrite, "overwrite", false, "Overwrite existing index.md files")
 	rootCmd.AddCommand(serveCmd)
 	rootCmd.AddCommand(listCmd)
 	rootCmd.AddCommand(readCmd)
+	rootCmd.AddCommand(createCmd)
 	rootCmd.AddCommand(editCmd)
 	rootCmd.AddCommand(grepCmd)
 	rootCmd.AddCommand(findCmd)

@@ -57,6 +57,7 @@ know serve -b /tmp/kc/okf/bundles/stackoverflow
 |---------|-------------|
 | `know list` | List concepts, optionally filtered by type/tags |
 | `know read <id>` | Read a concept or block (`concept#block-id`) |
+| `know create <id>` | Create a new concept (`--type` required, body via `--body` or stdin) |
 | `know grep <query>` | Full-text search within concepts (returns block context) |
 | `know find <query>` | Find concepts by index entries and headings |
 | `know edit <id>` | Edit a concept's body (find-and-replace, auto-logged) |
