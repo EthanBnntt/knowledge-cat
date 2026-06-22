@@ -75,6 +75,8 @@ When running as an MCP server (`know serve`), the following tools are exposed:
 | Tool | Description |
 |------|-------------|
 | `know_view_spec` | View the full OKF v0.1 specification |
+| `know_switch_bundle` | Switch to a different bundle at runtime |
+| `know_create_concept` | Create a new concept (type, title, description, tags, body) |
 | `know_list_concepts` | List concepts with optional type/tag filters |
 | `know_read_concept` | Read a concept or block (`id#block-id`) |
 | `know_edit_concept` | Edit a concept's body (auto-logged to log.md) |
@@ -83,6 +85,7 @@ When running as an MCP server (`know serve`), the following tools are exposed:
 | `know_list_types` | List all concept types and tags |
 | `know_validate` | Validate bundle conformance |
 | `know_generate_index` | Generate index.md files |
+| `know_read_log` | Read the bundle's change log |
 
 **Resources:** Concepts are also exposed as MCP resources under the `know://{+conceptID}` URI scheme.
 
@@ -121,7 +124,7 @@ Or set the `OKF_BUNDLE` environment variable:
 
 - **Block-level addressing** — `tables/badges#schema` reads just the Schema section
 - **Lenient parsing** — Handles comma-separated `tags`, multiple ISO timestamp formats
-- **Automatic logging** — Every `know edit` appends to the bundle's `log.md`
+- **Automatic logging** — `know create` and `know edit` append to the bundle's `log.md`
 - **Cross-link validation** — `know validate` checks markdown links between concepts
 - **Index generation** — Auto-generate `index.md` files grouped by concept type
 - **Resource URIs** — Concepts are addressable as `know://tables/badges` MCP resources
