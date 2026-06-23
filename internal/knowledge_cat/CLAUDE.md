@@ -17,13 +17,13 @@ operations consumed by both `cmd/know` (CLI) and `internal/mcp` (MCP server).
 ## Module Structure
 | File(s) | Role |
 |---------|------|
-| `okf.go` | Domain types: `Concept`, `Bundle`, `ListFilter` |
+| `knowledge_cat.go` | Domain types: `Concept`, `Bundle`, `ListFilter`, `ResolveBundlePath()` |
 | `bundle.go` | Constructor `Open()`, queries `List()`, `GetConcept()`, `ListTypes()` |
 | `concept.go` | Parsing, serialization, and mutation: `ParseConcept()`, `Marshal()`, `EditConcept()`, custom YAML unmarshalers for `tags` and `timestamp` |
 | `block.go` | Block addressing: `ParseBlocks()`, `GetBlock()`, `ParseConceptRef()` — `conceptID#blockID` |
 | `search.go`, `index_search.go` | Search: full-text grep (`Search()`) + structured index/heading search (`FindConcepts()`) |
 | `validate.go` | Spec conformance: `Validate()` — Errors/Warnings/Info triad, cross-link checking |
-| `log.go`, `generate_index.go` | Supporting ops: `AppendLog()`, `GenerateIndex()` |
+| `log.go`, `generate_index.go` | Supporting ops: `appendLog()`, `GenerateIndex()` |
 
 ## Lenient YAML Parsing (Custom `UnmarshalYAML` Types)
 Tags can be a YAML list or comma-separated string; timestamps use multiple ISO formats.

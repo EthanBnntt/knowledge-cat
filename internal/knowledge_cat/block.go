@@ -1,6 +1,7 @@
 package knowledge_cat
 
 import (
+	"fmt"
 	"regexp"
 	"strings"
 )
@@ -114,9 +115,9 @@ func GetBlock(body, blockID string) *Block {
 	return nil
 }
 
-// FindBlockForLine returns the block that contains the given line number.
+// findBlockForLine returns the block that contains the given line number.
 // lineNumber is 1-indexed. Returns nil if no block contains that line.
-func FindBlockForLine(body string, lineNumber int) *Block {
+func findBlockForLine(body string, lineNumber int) *Block {
 	blocks := ParseBlocks(body)
 	if len(blocks) == 0 {
 		return nil
@@ -195,4 +196,16 @@ func ParseConceptRef(ref string) (conceptID, blockID string) {
 		return ref[:idx], ref[idx+1:]
 	}
 	return ref, ""
+}
+
+// BlockNotFoundMessage returns a message describing a missing block, listing
+// the available block IDs.
+func BlockNotFoundMessage(conceptID, blockID, body string) string {
+	blocks := ParseBlocks(body)
+	ids := make([]string, len(blocks))
+	for i, bl := range blocks {
+		ids[i] = bl.ID
+	}
+	return fmt.Sprintf("block %q not found in %s. Available blocks: %s",
+		blockID, conceptID, strings.Join(ids, ", "))
 }

@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 )
@@ -64,7 +65,7 @@ func Open(path string) (*Bundle, error) {
 			return fmt.Errorf("read %s: %w", filePath, err)
 		}
 
-		concept, err := ParseConcept(conceptID, content)
+		concept, err := parseConcept(conceptID, content)
 		if err != nil {
 			// Lenient: warn and skip malformed concepts.
 			warnings = append(warnings, fmt.Sprintf("skipping %s: %v", relPath, err))
@@ -104,8 +105,17 @@ func (b *Bundle) List(filter *ListFilter) []*Concept {
 			if filter.Type != "" && c.Type != filter.Type {
 				continue
 			}
-			if len(filter.Tags) > 0 && !hasAnyTag(c.Tags, filter.Tags) {
-				continue
+			if len(filter.Tags) > 0 {
+				matched := false
+				for _, ft := range filter.Tags {
+					if slices.Contains(c.Tags, ft) {
+						matched = true
+						break
+					}
+				}
+				if !matched {
+					continue
+				}
 			}
 		}
 		result = append(result, c)
@@ -139,19 +149,6 @@ func (b *Bundle) ListTypes() (types []string, tags []string) {
 	sort.Strings(types)
 	sort.Strings(tags)
 	return types, tags
-}
-
-// hasAnyTag returns true if the concept tags include at least one of the
-// filter tags.
-func hasAnyTag(conceptTags, filterTags []string) bool {
-	for _, ft := range filterTags {
-		for _, ct := range conceptTags {
-			if ct == ft {
-				return true
-			}
-		}
-	}
-	return false
 }
 
 

@@ -33,17 +33,9 @@ type ServerConfig struct {
 // Run starts the MCP server over stdin/stdout using the official go-sdk.
 // It blocks until the client disconnects.
 func Run(cfg ServerConfig) error {
-	bundlePath := cfg.BundlePath
-	if bundlePath == "" {
-		bundlePath = os.Getenv("OKF_BUNDLE")
-	}
-	if bundlePath == "" {
-		// Last resort: try current directory.
-		cwd, err := os.Getwd()
-		if err != nil {
-			return fmt.Errorf("no bundle path specified and cannot get CWD: %w", err)
-		}
-		bundlePath = cwd
+	bundlePath, err := knowledge_cat.ResolveBundlePath(cfg.BundlePath, os.Getenv("OKF_BUNDLE"))
+	if err != nil {
+		return fmt.Errorf("resolve bundle path: %w", err)
 	}
 
 	b, err := knowledge_cat.Open(bundlePath)
@@ -64,7 +56,9 @@ func Run(cfg ServerConfig) error {
 					"know_read_concept to read a concept by ID (supports #block-id, e.g. 'tables/badges#schema'), "+
 					"know_grep for full-text search within concepts (returns block context), "+
 					"know_find_concepts to find concepts by index/headings, and "+
-					"know_list_types to see available types and tags.",
+					"know_list_types to see available types and tags, "+
+					"know_links to traverse concept link graphs (outgoing links + backlinks), and "+
+				"know_follow_link to follow a raw markdown link target from a concept to the linked concept.",
 				bundlePath, len(bh.Bundle().Concepts),
 			),
 		},
@@ -176,6 +170,22 @@ func registerTools(server *mcp.Server, bh *bundleHandle) {
 		},
 		makeReadLogHandler(bh),
 	)
+
+	mcp.AddTool(server,
+		&mcp.Tool{
+			Name:        "know_follow_link",
+			Description: "Follow a markdown link from a concept to the linked concept. Given a source concept ID and the raw link target (as it appears in the markdown body, e.g. 'concept-two.md' or '/tables/orders.md#schema'), resolves the link and returns the full linked concept. For fragment-only links (#block-id), returns the source concept. For external URLs, returns the URL in the response.",
+		},
+		makeFollowLinkHandler(bh),
+	)
+
+	mcp.AddTool(server,
+		&mcp.Tool{
+			Name:        "know_links",
+			Description: "Show outgoing and incoming links for a concept. Resolves markdown links to enriched concept references with type and title. Returns outgoing links (what this concept links to) and incoming links/backlinks (what concepts link to this one). Broken links and external URLs are excluded.",
+		},
+		makeLinksHandler(bh),
+	)
 }
 
 // --- Tool input types ---
@@ -220,34 +230,6 @@ type findConceptsInput struct {
 	Query string `json:"query" jsonschema:"required, the search term (case-insensitive)"`
 }
 
-// termSearchResult is the JSON representation of a single term search result.
-type termSearchResult struct {
-	ConceptID    string             `json:"concept_id"`
-	ConceptTitle string             `json:"concept_title"`
-	ConceptType  string             `json:"concept_type"`
-	IndexMatches []termIndexMatch   `json:"index_matches,omitempty"`
-	Headings     []termHeadingMatch `json:"heading_matches,omitempty"`
-}
-
-type termIndexMatch struct {
-	IndexPath    string `json:"index_path"`
-	Section      string `json:"section"`
-	ConceptTitle string `json:"concept_title"`
-	Description  string `json:"description"`
-}
-
-type termHeadingMatch struct {
-	Heading string `json:"heading"`
-	Level   int    `json:"level"`
-	Snippet string `json:"snippet"`
-}
-
-// findConceptsOutput wraps the results of a term search.
-type findConceptsOutput struct {
-	Query   string             `json:"query"`
-	Results []termSearchResult `json:"results"`
-}
-
 // searchInput is the input for know_search.
 type searchInput struct {
 	// Query is the search term (case-insensitive).
@@ -259,47 +241,15 @@ type searchInput struct {
 // --- Tool output types ---
 // All output types must be structs (objects) for the go-sdk.
 
-// conceptSummary is a lightweight view of a concept (no body).
-type conceptSummary struct {
-	ID          string   `json:"id"`
-	Type        string   `json:"type"`
-	Title       string   `json:"title"`
-	Description string   `json:"description"`
-	Resource    string   `json:"resource,omitempty"`
-	Tags        []string `json:"tags,omitempty"`
-}
-
-// listConceptsOutput wraps a list of concept summaries.
+// listConceptsOutput wraps a list of concepts.
 type listConceptsOutput struct {
-	Concepts []conceptSummary `json:"concepts"`
-}
-
-// conceptFull is the complete concept including body and links.
-type conceptFull struct {
-	ID          string   `json:"id"`
-	Type        string   `json:"type"`
-	Title       string   `json:"title"`
-	Description string   `json:"description"`
-	Resource    string   `json:"resource,omitempty"`
-	Tags        []string `json:"tags,omitempty"`
-	Timestamp   string   `json:"timestamp,omitempty"`
-	Body        string   `json:"body"`
-	Links       []string `json:"links,omitempty"`
+	Concepts []*knowledge_cat.Concept `json:"concepts"`
 }
 
 // searchOutput wraps search results.
 type searchOutput struct {
-	Query   string      `json:"query"`
-	Results []searchHit `json:"results"`
-}
-
-type searchHit struct {
-	ConceptID    string `json:"concept_id"`
-	ConceptType  string `json:"concept_type"`
-	ConceptTitle string `json:"concept_title"`
-	Field        string `json:"field"`
-	Match        string `json:"match"`
-	BlockID      string `json:"block_id,omitempty"`
+	Query   string                        `json:"query"`
+	Results []knowledge_cat.SearchResult `json:"results"`
 }
 
 // listTypesOutput wraps the list of types and tags.
@@ -317,91 +267,33 @@ func makeListConceptsHandler(bh *bundleHandle) mcp.ToolHandlerFor[listConceptsIn
 			Tags: input.Tags,
 		}
 		concepts := bh.Bundle().List(filter)
-		summaries := make([]conceptSummary, len(concepts))
-		for i, c := range concepts {
-			summaries[i] = conceptSummary{
-				ID:          c.ID,
-				Type:        c.Type,
-				Title:       c.Title,
-				Description: c.Description,
-				Resource:    c.Resource,
-				Tags:        c.Tags,
-			}
-		}
-		return nil, listConceptsOutput{Concepts: summaries}, nil
+		return nil, listConceptsOutput{Concepts: concepts}, nil
 	}
 }
 
-func makeReadConceptHandler(bh *bundleHandle) mcp.ToolHandlerFor[readConceptInput, conceptFull] {
-	return func(_ context.Context, _ *mcp.CallToolRequest, input readConceptInput) (*mcp.CallToolResult, conceptFull, error) {
+func makeReadConceptHandler(bh *bundleHandle) mcp.ToolHandlerFor[readConceptInput, knowledge_cat.Concept] {
+	return func(_ context.Context, _ *mcp.CallToolRequest, input readConceptInput) (*mcp.CallToolResult, knowledge_cat.Concept, error) {
 		conceptID, blockID := knowledge_cat.ParseConceptRef(input.ID)
 
 		c := bh.Bundle().GetConcept(conceptID)
 		if c == nil {
-			return &mcp.CallToolResult{
-				Content: []mcp.Content{
-					&mcp.TextContent{
-						Text: fmt.Sprintf("Concept not found: %s. Use know_list_concepts to see available concepts.", conceptID),
-					},
-				},
-				IsError: true,
-			}, conceptFull{}, nil
+			return mcpErrorf[knowledge_cat.Concept]("Concept not found: %s. Use know_list_concepts to see available concepts.", conceptID)
 		}
 
 		// If a block ID is specified, return just that block's content.
 		if blockID != "" {
 			block := knowledge_cat.GetBlock(c.Body, blockID)
 			if block == nil {
-				blocks := knowledge_cat.ParseBlocks(c.Body)
-				ids := make([]string, len(blocks))
-				for i, bl := range blocks {
-					ids[i] = bl.ID
-				}
-				return &mcp.CallToolResult{
-					Content: []mcp.Content{
-						&mcp.TextContent{
-							Text: fmt.Sprintf("Block %q not found in %s. Available blocks: %s",
-								blockID, conceptID, strings.Join(ids, ", ")),
-						},
-					},
-					IsError: true,
-				}, conceptFull{}, nil
+				return mcpErrorf[knowledge_cat.Concept]("%s", knowledge_cat.BlockNotFoundMessage(conceptID, blockID, c.Body))
 			}
 
 			// Return the concept's frontmatter with just the block content in the body.
-			ts := ""
-			if !c.Timestamp.IsZero() {
-				ts = c.Timestamp.Format("2006-01-02T15:04:05Z")
-			}
-			return nil, conceptFull{
-				ID:          c.ID,
-				Type:        c.Type,
-				Title:       c.Title,
-				Description: c.Description,
-				Resource:    c.Resource,
-				Tags:        c.Tags,
-				Timestamp:   ts,
-				Body:        block.Content,
-				Links:       c.Links,
-			}, nil
+			shallow := *c
+			shallow.Body = block.Content
+			return nil, shallow, nil
 		}
 
-		ts := ""
-		if !c.Timestamp.IsZero() {
-			ts = c.Timestamp.Format("2006-01-02T15:04:05Z")
-		}
-
-		return nil, conceptFull{
-			ID:          c.ID,
-			Type:        c.Type,
-			Title:       c.Title,
-			Description: c.Description,
-			Resource:    c.Resource,
-			Tags:        c.Tags,
-			Timestamp:   ts,
-			Body:        c.Body,
-			Links:       c.Links,
-		}, nil
+		return nil, *c, nil
 	}
 }
 
@@ -409,12 +301,7 @@ func makeEditConceptHandler(bh *bundleHandle) mcp.ToolHandlerFor[editConceptInpu
 	return func(_ context.Context, _ *mcp.CallToolRequest, input editConceptInput) (*mcp.CallToolResult, editConceptOutput, error) {
 		c, err := knowledge_cat.EditConcept(bh.Path(), input.ID, input.OldText, input.NewText, input.Description)
 		if err != nil {
-			return &mcp.CallToolResult{
-				Content: []mcp.Content{
-					&mcp.TextContent{Text: fmt.Sprintf("Edit failed: %v", err)},
-				},
-				IsError: true,
-			}, editConceptOutput{}, nil
+			return mcpErrorf[editConceptOutput]("Edit failed: %v", err)
 		}
 
 		return nil, editConceptOutput{
@@ -425,63 +312,21 @@ func makeEditConceptHandler(bh *bundleHandle) mcp.ToolHandlerFor[editConceptInpu
 	}
 }
 
-func makeFindConceptsHandler(bh *bundleHandle) mcp.ToolHandlerFor[findConceptsInput, findConceptsOutput] {
-	return func(_ context.Context, _ *mcp.CallToolRequest, input findConceptsInput) (*mcp.CallToolResult, findConceptsOutput, error) {
-		results := bh.Bundle().FindConcepts(input.Query)
-
-		out := findConceptsOutput{
-			Query:   results.Query,
-			Results: make([]termSearchResult, len(results.Results)),
-		}
-
-		for i, r := range results.Results {
-			tr := termSearchResult{
-				ConceptID:    r.ConceptID,
-				ConceptTitle: r.ConceptTitle,
-				ConceptType:  r.ConceptType,
-			}
-
-			for _, im := range r.IndexMatches {
-				tr.IndexMatches = append(tr.IndexMatches, termIndexMatch{
-					IndexPath:    im.IndexPath,
-					Section:      im.Section,
-					ConceptTitle: im.ConceptTitle,
-					Description:  im.Description,
-				})
-			}
-
-			for _, h := range r.Headings {
-				tr.Headings = append(tr.Headings, termHeadingMatch{
-					Heading: h.Heading,
-					Level:   h.Level,
-					Snippet: h.Snippet,
-				})
-			}
-
-			out.Results[i] = tr
-		}
-
-		return nil, out, nil
+func makeFindConceptsHandler(bh *bundleHandle) mcp.ToolHandlerFor[findConceptsInput, knowledge_cat.FindOutput] {
+	return func(_ context.Context, _ *mcp.CallToolRequest, input findConceptsInput) (*mcp.CallToolResult, knowledge_cat.FindOutput, error) {
+		return nil, bh.Bundle().FindConcepts(input.Query), nil
 	}
 }
 
 func makeGrepHandler(bh *bundleHandle) mcp.ToolHandlerFor[searchInput, searchOutput] {
 	return func(_ context.Context, _ *mcp.CallToolRequest, input searchInput) (*mcp.CallToolResult, searchOutput, error) {
 		results := bh.Bundle().Search(input.Query, input.Types)
-		hits := make([]searchHit, len(results))
-		for i, r := range results {
-			hits[i] = searchHit{
-				ConceptID:    r.Concept.ID,
-				ConceptType:  r.Concept.Type,
-				ConceptTitle: r.Concept.Title,
-				Field:        r.Field,
-				Match:        knowledge_cat.TruncateString(r.Line, 200),
-				BlockID:      r.BlockID,
-			}
+		for i := range results {
+			results[i].Line = knowledge_cat.TruncateString(results[i].Line, 200)
 		}
 		return nil, searchOutput{
 			Query:   input.Query,
-			Results: hits,
+			Results: results,
 		}, nil
 	}
 }
@@ -496,56 +341,14 @@ func makeListTypesHandler(bh *bundleHandle) mcp.ToolHandlerFor[struct{}, listTyp
 	}
 }
 
-func makeValidateHandler(bh *bundleHandle) mcp.ToolHandlerFor[struct{}, validateOutput] {
-	return func(_ context.Context, _ *mcp.CallToolRequest, _ struct{}) (*mcp.CallToolResult, validateOutput, error) {
+func makeValidateHandler(bh *bundleHandle) mcp.ToolHandlerFor[struct{}, knowledge_cat.ValidationResult] {
+	return func(_ context.Context, _ *mcp.CallToolRequest, _ struct{}) (*mcp.CallToolResult, knowledge_cat.ValidationResult, error) {
 		result, err := knowledge_cat.Validate(bh.Path())
 		if err != nil {
-			return &mcp.CallToolResult{
-				Content: []mcp.Content{
-					&mcp.TextContent{Text: fmt.Sprintf("Validation error: %v", err)},
-				},
-				IsError: true,
-			}, validateOutput{}, nil
+			return mcpErrorf[knowledge_cat.ValidationResult]("Validation error: %v", err)
 		}
-
-		out := validateOutput{
-			Valid:    result.Valid,
-			Errors:   make([]validateIssue, len(result.Errors)),
-			Warnings: make([]validateIssue, len(result.Warnings)),
-			Info:     make([]validateInfoIssue, len(result.Info)),
-		}
-
-		for i, e := range result.Errors {
-			out.Errors[i] = validateIssue{File: e.File, Line: e.Line, Message: e.Message}
-		}
-		for i, w := range result.Warnings {
-			out.Warnings[i] = validateIssue{File: w.File, Line: w.Line, Message: w.Message}
-		}
-		for i, inf := range result.Info {
-			out.Info[i] = validateInfoIssue{File: inf.File, Message: inf.Message}
-		}
-
-		return nil, out, nil
+		return nil, *result, nil
 	}
-}
-
-// validateOutput is the result of know_validate.
-type validateOutput struct {
-	Valid    bool                `json:"valid"`
-	Errors   []validateIssue     `json:"errors"`
-	Warnings []validateIssue     `json:"warnings"`
-	Info     []validateInfoIssue `json:"info"`
-}
-
-type validateIssue struct {
-	File    string `json:"file"`
-	Line    int    `json:"line"`
-	Message string `json:"message"`
-}
-
-type validateInfoIssue struct {
-	File    string `json:"file"`
-	Message string `json:"message"`
 }
 
 // generateIndexInput is the input for know_generate_index.
@@ -564,12 +367,7 @@ func makeGenerateIndexHandler(bh *bundleHandle) mcp.ToolHandlerFor[generateIndex
 	return func(_ context.Context, _ *mcp.CallToolRequest, input generateIndexInput) (*mcp.CallToolResult, generateIndexOutput, error) {
 		written, err := knowledge_cat.GenerateIndex(bh.Path(), input.Overwrite, input.Directory)
 		if err != nil {
-			return &mcp.CallToolResult{
-				Content: []mcp.Content{
-					&mcp.TextContent{Text: fmt.Sprintf("Generate-index error: %v", err)},
-				},
-				IsError: true,
-			}, generateIndexOutput{}, nil
+			return mcpErrorf[generateIndexOutput]("Generate-index error: %v", err)
 		}
 
 		msg := fmt.Sprintf("No index.md files generated (use overwrite=true to regenerate existing ones).")
@@ -641,37 +439,117 @@ func makeResourceHandler(bh *bundleHandle) mcp.ResourceHandler {
 
 // readLogOutput is the result of know_read_log.
 type readLogOutput struct {
-	Entries []logEntryItem `json:"entries"`
-}
-
-type logEntryItem struct {
-	Date        string `json:"date"`
-	Action      string `json:"action"`
-	Description string `json:"description"`
+	Entries []knowledge_cat.LogEntry `json:"entries"`
 }
 
 func makeReadLogHandler(bh *bundleHandle) mcp.ToolHandlerFor[struct{}, readLogOutput] {
 	return func(_ context.Context, _ *mcp.CallToolRequest, _ struct{}) (*mcp.CallToolResult, readLogOutput, error) {
 		entries, err := knowledge_cat.ReadLog(bh.Path())
 		if err != nil {
-			return &mcp.CallToolResult{
-				Content: []mcp.Content{
-					&mcp.TextContent{Text: fmt.Sprintf("Read log error: %v", err)},
-				},
-				IsError: true,
-			}, readLogOutput{}, nil
+			return mcpErrorf[readLogOutput]("Read log error: %v", err)
 		}
 
-		items := make([]logEntryItem, len(entries))
-		for i, e := range entries {
-			items[i] = logEntryItem{
-				Date:        e.Date.Format("2006-01-02"),
-				Action:      e.Action,
-				Description: e.Description,
+		return nil, readLogOutput{Entries: entries}, nil
+	}
+}
+
+// followLinkInput is the input for know_follow_link.
+type followLinkInput struct {
+	// SourceID is the concept ID that contains the link.
+	SourceID string `json:"source_id" jsonschema:"required, the concept ID containing the link (e.g. 'tables/orders')"`
+	// LinkTarget is the raw markdown link target as it appears in the body.
+	// E.g., "concept-two.md", "/tables/orders.md#schema", "#block-id".
+	LinkTarget string `json:"link_target" jsonschema:"required, the raw link target from the markdown body (e.g. 'concept-two.md', '/tables/orders.md#schema')"`
+}
+
+// followLinkOutput is the result of know_follow_link.
+type followLinkOutput struct {
+	SourceID    string `json:"source_id"`
+	LinkTarget  string `json:"link_target"`
+	ResolvedID  string `json:"resolved_id"`
+	SameConcept bool   `json:"same_concept"`
+	External    bool   `json:"external"`
+	ExternalURL string `json:"external_url,omitempty"`
+	Broken      bool   `json:"broken"`
+	Fragment    string `json:"fragment,omitempty"`
+	// Target fields — populated when a valid concept link is followed.
+	TargetID          string   `json:"target_id,omitempty"`
+	TargetType        string   `json:"target_type,omitempty"`
+	TargetTitle       string   `json:"target_title,omitempty"`
+	TargetDescription string   `json:"target_description,omitempty"`
+	TargetResource    string   `json:"target_resource,omitempty"`
+	TargetTags        []string `json:"target_tags,omitempty"`
+	TargetTimestamp   string   `json:"target_timestamp,omitempty"`
+	TargetBody        string   `json:"target_body,omitempty"`
+	TargetLinks       []string `json:"target_links,omitempty"`
+}
+
+func makeFollowLinkHandler(bh *bundleHandle) mcp.ToolHandlerFor[followLinkInput, followLinkOutput] {
+	return func(_ context.Context, _ *mcp.CallToolRequest, input followLinkInput) (*mcp.CallToolResult, followLinkOutput, error) {
+		result, err := bh.Bundle().FollowLink(input.SourceID, input.LinkTarget)
+		if err != nil {
+			// Broken link — return the partial result as a user error.
+			if result != nil {
+				return &mcp.CallToolResult{
+					Content: []mcp.Content{
+						&mcp.TextContent{
+							Text: fmt.Sprintf("Broken link: target %q (resolved to %q) not found in bundle.",
+								result.LinkTarget, result.ResolvedID),
+						},
+					},
+					IsError: true,
+				}, followLinkOutput{
+					SourceID:   result.SourceID,
+					LinkTarget: result.LinkTarget,
+					ResolvedID: result.ResolvedID,
+					Broken:     true,
+					Fragment:   result.Fragment,
+				}, nil
 			}
+			return mcpErrorf[followLinkOutput]("Follow-link error: %v", err)
 		}
 
-		return nil, readLogOutput{Entries: items}, nil
+		out := followLinkOutput{
+			SourceID:    result.SourceID,
+			LinkTarget:  result.LinkTarget,
+			ResolvedID:  result.ResolvedID,
+			SameConcept: result.SameConcept,
+			External:    result.External,
+			ExternalURL: result.ExternalURL,
+			Broken:      result.Broken,
+			Fragment:    result.Fragment,
+		}
+
+		if result.Target != nil {
+			out.TargetID = result.Target.ID
+			out.TargetType = result.Target.Type
+			out.TargetTitle = result.Target.Title
+			out.TargetDescription = result.Target.Description
+			out.TargetResource = result.Target.Resource
+			out.TargetTags = result.Target.Tags
+			out.TargetTimestamp = result.Target.TimestampString()
+			out.TargetBody = result.Target.Body
+			out.TargetLinks = result.Target.Links
+		}
+
+		return nil, out, nil
+	}
+}
+
+// linksInput is the input for know_links.
+type linksInput struct {
+	// ID is the concept identifier (path sans .md) whose links to trace.
+	ID string `json:"id" jsonschema:"required, concept ID whose link graph to trace (e.g. 'tables/orders')"`
+}
+
+// linksOutput is the result of know_links.
+func makeLinksHandler(bh *bundleHandle) mcp.ToolHandlerFor[linksInput, knowledge_cat.LinksResult] {
+	return func(_ context.Context, _ *mcp.CallToolRequest, input linksInput) (*mcp.CallToolResult, knowledge_cat.LinksResult, error) {
+		result, err := bh.Bundle().LinksOf(input.ID)
+		if err != nil {
+			return mcpErrorf[knowledge_cat.LinksResult]("Links error: %v", err)
+		}
+		return nil, *result, nil
 	}
 }
 
@@ -703,12 +581,7 @@ func makeSwitchBundleHandler(bh *bundleHandle) mcp.ToolHandlerFor[switchBundleIn
 	return func(_ context.Context, _ *mcp.CallToolRequest, input switchBundleInput) (*mcp.CallToolResult, switchBundleOutput, error) {
 		b, err := knowledge_cat.Open(input.Path)
 		if err != nil {
-			return &mcp.CallToolResult{
-				Content: []mcp.Content{
-					&mcp.TextContent{Text: fmt.Sprintf("Failed to open bundle at %s: %v", input.Path, err)},
-				},
-				IsError: true,
-			}, switchBundleOutput{}, nil
+			return mcpErrorf[switchBundleOutput]("Failed to open bundle at %s: %v", input.Path, err)
 		}
 		bh.b = b
 		bh.path = input.Path
@@ -750,12 +623,7 @@ func makeCreateConceptHandler(bh *bundleHandle) mcp.ToolHandlerFor[createConcept
 	return func(_ context.Context, _ *mcp.CallToolRequest, input createConceptInput) (*mcp.CallToolResult, createConceptOutput, error) {
 		c, err := knowledge_cat.CreateConcept(bh.Path(), input.ID, input.Type, input.Title, input.Description, input.Resource, input.Tags, input.Body)
 		if err != nil {
-			return &mcp.CallToolResult{
-				Content: []mcp.Content{
-					&mcp.TextContent{Text: fmt.Sprintf("Create failed: %v", err)},
-				},
-				IsError: true,
-			}, createConceptOutput{}, nil
+			return mcpErrorf[createConceptOutput]("Create failed: %v", err)
 		}
 		return nil, createConceptOutput{
 			ID:      c.ID,
@@ -764,5 +632,18 @@ func makeCreateConceptHandler(bh *bundleHandle) mcp.ToolHandlerFor[createConcept
 			Message: fmt.Sprintf("Created concept %q (%s). Logged to log.md.", c.ID, c.Type),
 		}, nil
 	}
+}
+
+// mcpErrorf returns a CallToolResult with IsError=true and a formatted text
+// message, along with a zero value of the output type T. Use in MCP handlers
+// to report user-facing errors without a Go error.
+func mcpErrorf[T any](format string, args ...any) (*mcp.CallToolResult, T, error) {
+	var zero T
+	return &mcp.CallToolResult{
+		Content: []mcp.Content{
+			&mcp.TextContent{Text: fmt.Sprintf(format, args...)},
+		},
+		IsError: true,
+	}, zero, nil
 }
 

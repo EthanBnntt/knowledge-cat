@@ -14,28 +14,26 @@ import (
 // the v0.1 spec (Section 9 — Conformance).
 type ValidationResult struct {
 	// Valid is true if no conformance errors were found.
-	Valid bool
+	Valid bool `json:"valid"`
 
 	// Errors are spec violations that prevent conformance.
-	Errors []ValidationIssue
+	Errors []ValidationIssue `json:"errors"`
 
 	// Warnings are soft-guidance violations — recommended but not required.
-	Warnings []ValidationIssue
+	Warnings []ValidationIssue `json:"warnings"`
 
 	// Info provides informational notes about the bundle.
-	Info []ValidationIssue
+	Info []ValidationIssue `json:"info"`
+
+	// BrokenLinks lists all broken cross-concept links found during validation.
+	BrokenLinks []BrokenLink `json:"broken_links,omitempty"`
 }
 
 // ValidationIssue represents a single validation finding.
 type ValidationIssue struct {
-	// File is the path relative to the bundle root.
-	File string
-
-	// Line is the 1-indexed line number, or 0 if file-level.
-	Line int
-
-	// Message describes the issue.
-	Message string
+	File    string `json:"file"`
+	Line    int    `json:"line"`
+	Message string `json:"message"`
 }
 
 // logDatePattern matches "## YYYY-MM-DD" headings in log.md.
@@ -367,73 +365,22 @@ func validateLogFile(bundleRoot, relPath string, result *ValidationResult) {
 }
 
 // checkCrossLinks validates markdown links between concepts.
-// Broken links are reported as warnings (spec §9 says consumers MUST tolerate them).
+// Broken links are reported as warnings (spec §9 says consumers MUST tolerate them)
+// and also collected in the structured BrokenLinks field.
 func checkCrossLinks(bundleRoot string, b *Bundle, result *ValidationResult) {
-	for _, c := range b.Concepts {
-		for _, link := range c.Links {
-			targetID := resolveLinkTarget(link, c.ID)
-			if targetID == "" {
-				continue // external URL, not a concept link
-			}
-
-			// Check if the target concept exists.
-			if _, ok := b.Concepts[targetID]; !ok {
-				// Check if it exists as a file on disk (might not have been parsed).
-				targetPath := filepath.Join(bundleRoot, targetID+".md")
-				if _, statErr := os.Stat(targetPath); os.IsNotExist(statErr) {
-					result.Warnings = append(result.Warnings, ValidationIssue{
-						File:    c.ID + ".md",
-						Message: fmt.Sprintf("broken link to %q (target %q not found in bundle)", link, targetID),
-					})
-				}
+	for id := range b.Concepts {
+		for _, bl := range findBrokenLinks(b, id) {
+			// Also check disk — concept might exist but not have been parsed.
+			targetPath := filepath.Join(bundleRoot, bl.ResolvedID+".md")
+			if _, statErr := os.Stat(targetPath); os.IsNotExist(statErr) {
+				result.Warnings = append(result.Warnings, ValidationIssue{
+					File:    bl.SourceID + ".md",
+					Message: fmt.Sprintf("broken link to %q (target %q not found in bundle)", bl.LinkTarget, bl.ResolvedID),
+				})
+				result.BrokenLinks = append(result.BrokenLinks, bl)
 			}
 		}
 	}
-}
-
-// resolveLinkTarget resolves a markdown link target to a concept ID.
-// Absolute links (/tables/orders.md) are resolved relative to bundle root.
-// Relative links (./other.md, ../other.md) are resolved relative to source concept.
-// Fragment-only links (#block-id) stay within the same concept.
-// External URLs (http://, https://) return empty string.
-func resolveLinkTarget(linkTarget, sourceID string) string {
-	target := strings.TrimSpace(linkTarget)
-
-	// External URLs.
-	if strings.HasPrefix(target, "http://") || strings.HasPrefix(target, "https://") {
-		return ""
-	}
-
-	// Fragment-only link (#block-id, #section) — stays within source concept.
-	if strings.HasPrefix(target, "#") {
-		return "" // valid — same concept, block IDs are not validated
-	}
-
-	// Strip fragment first, then .md suffix.
-	// (e.g., "target.md#block" → fragment removal → "target.md" → .md strip → "target")
-	if idx := strings.Index(target, "#"); idx >= 0 {
-		target = target[:idx]
-	}
-
-	// Strip .md suffix if present.
-	target = strings.TrimSuffix(target, ".md")
-
-	// Strip trailing slash (directory references like "subdir/").
-	target = strings.TrimSuffix(target, "/")
-
-	// Absolute links.
-	if strings.HasPrefix(target, "/") {
-		return strings.TrimPrefix(target, "/")
-	}
-
-	// Relative links — resolve relative to source concept's directory.
-	sourceDir := filepath.Dir(sourceID)
-	if sourceDir == "." {
-		return target
-	}
-	resolved := filepath.Join(sourceDir, target)
-	resolved = filepath.Clean(resolved)
-	return resolved
 }
 
 // checkMissingIndexes reports directories that don't have an index.md.
