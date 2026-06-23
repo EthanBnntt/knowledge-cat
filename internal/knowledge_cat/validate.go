@@ -187,6 +187,14 @@ func Validate(path string) (*ValidationResult, error) {
 			})
 		}
 
+		// Warning: missing tags.
+		if len(c.Tags) == 0 {
+			result.Warnings = append(result.Warnings, ValidationIssue{
+				File:    relPath,
+				Message: fmt.Sprintf("missing recommended 'tags' field (concept: %s)", conceptID),
+			})
+		}
+
 		return nil
 	})
 
