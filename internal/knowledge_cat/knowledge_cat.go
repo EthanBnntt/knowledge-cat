@@ -6,41 +6,33 @@
 // https://github.com/GoogleCloudPlatform/knowledge-catalog/blob/main/okf/SPEC.md
 package knowledge_cat
 
-import "time"
+import (
+	"fmt"
+	"os"
+	"time"
+)
 
 // Concept represents a single unit of knowledge within an OKF bundle.
 // Each concept is backed by one markdown file with YAML frontmatter.
 type Concept struct {
-	// ID is the path of the concept's file within the bundle, with the .md
-	// suffix removed. For example, "tables/orders".
-	ID string
+	ID          string    `json:"id"`
+	Type        string    `json:"type"`
+	Title       string    `json:"title"`
+	Description string    `json:"description,omitempty"`
+	Resource    string    `json:"resource,omitempty"`
+	Tags        []string  `json:"tags,omitempty"`
+	Timestamp   time.Time `json:"timestamp,omitempty"`
+	Body        string    `json:"body,omitempty"`
+	Links       []string  `json:"links,omitempty"`
+}
 
-	// Type is the required frontmatter field identifying the kind of concept.
-	// Examples: "BigQuery Table", "API Endpoint", "Metric", "Playbook".
-	Type string
-
-	// Title is the optional human-readable display name.
-	Title string
-
-	// Description is an optional one-line summary of the concept.
-	Description string
-
-	// Resource is an optional canonical URI for the underlying asset the
-	// concept describes.
-	Resource string
-
-	// Tags is an optional list of strings for cross-cutting categorization.
-	Tags []string
-
-	// Timestamp is the optional ISO 8601 datetime of last meaningful change.
-	Timestamp time.Time
-
-	// Body is the markdown content after the YAML frontmatter block.
-	Body string
-
-	// Links contains the targets of markdown links found in the body.
-	// Both absolute (/path/to/concept.md) and relative (../other.md) links are included.
-	Links []string
+// TimestampString returns the timestamp formatted as ISO 8601, or an empty
+// string if the timestamp is zero.
+func (c *Concept) TimestampString() string {
+	if c.Timestamp.IsZero() {
+		return ""
+	}
+	return c.Timestamp.Format("2006-01-02T15:04:05Z")
 }
 
 // ListFilter controls which concepts are returned by Bundle.List.
@@ -60,4 +52,20 @@ type Bundle struct {
 
 	// Concepts maps concept IDs to their parsed Concept structs.
 	Concepts map[string]*Concept
+}
+
+// ResolveBundlePath returns the first non-empty candidate as the bundle path,
+// falling back to the current working directory. Used by both the CLI and MCP
+// server to resolve bundle paths with consistent fallback behavior.
+func ResolveBundlePath(candidates ...string) (string, error) {
+	for _, c := range candidates {
+		if c != "" {
+			return c, nil
+		}
+	}
+	cwd, err := os.Getwd()
+	if err != nil {
+		return "", fmt.Errorf("getting current directory: %w", err)
+	}
+	return cwd, nil
 }

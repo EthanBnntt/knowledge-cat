@@ -91,7 +91,7 @@ func (t *tagTime) UnmarshalYAML(value *yaml.Node) error {
 
 // ParseConcept parses a single OKF concept from raw markdown content.
 // It returns an error if the required type field is missing or empty.
-func ParseConcept(id string, content []byte) (*Concept, error) {
+func parseConcept(id string, content []byte) (*Concept, error) {
 	c := &Concept{ID: id}
 
 	// Extract frontmatter and body.
@@ -124,9 +124,9 @@ func ParseConcept(id string, content []byte) (*Concept, error) {
 	return c, nil
 }
 
-// WriteConcept serializes a Concept back to its markdown representation
+// writeConcept serializes a Concept back to its markdown representation
 // and writes it to the appropriate file within the bundle.
-func WriteConcept(bundlePath string, c *Concept) error {
+func writeConcept(bundlePath string, c *Concept) error {
 	targetPath := filepath.Join(bundlePath, c.ID+".md")
 
 	// Ensure parent directory exists.
@@ -237,7 +237,7 @@ func EditConcept(bundlePath, conceptID, oldText, newText, description string) (*
 	c.Links = extractLinks(c.Body)
 
 	// Write the concept back to disk.
-	if err := WriteConcept(bundlePath, c); err != nil {
+	if err := writeConcept(bundlePath, c); err != nil {
 		return nil, fmt.Errorf("edit concept %s: %w", conceptID, err)
 	}
 
@@ -251,8 +251,17 @@ func EditConcept(bundlePath, conceptID, oldText, newText, description string) (*
 		Action:      "Edit",
 		Description: description,
 	}
-	if err := AppendLog(bundlePath, logEntry); err != nil {
+	if err := appendLog(bundlePath, logEntry); err != nil {
 		return c, fmt.Errorf("edit concept %s: saved but failed to update log: %w", conceptID, err)
+	}
+
+	// Check links after write and warn about broken ones.
+	brokenLinks, linkErr := CheckConceptLinks(bundlePath, conceptID)
+	if linkErr == nil && len(brokenLinks) > 0 {
+		for _, bl := range brokenLinks {
+			fmt.Fprintf(os.Stderr, `{"severity":"warning","source":"%s","link_target":"%s","resolved_id":"%s","message":"broken link"}
+`, bl.SourceID, bl.LinkTarget, bl.ResolvedID)
+		}
 	}
 
 	return c, nil
@@ -297,7 +306,7 @@ func CreateConcept(bundlePath, conceptID, conceptType, title, description, resou
 		Links:       extractLinks(body),
 	}
 
-	if err := WriteConcept(bundlePath, c); err != nil {
+	if err := writeConcept(bundlePath, c); err != nil {
 		return nil, fmt.Errorf("create concept %s: %w", conceptID, err)
 	}
 
@@ -315,8 +324,17 @@ func CreateConcept(bundlePath, conceptID, conceptType, title, description, resou
 		Action:      "Creation",
 		Description: logDesc,
 	}
-	if err := AppendLog(bundlePath, logEntry); err != nil {
+	if err := appendLog(bundlePath, logEntry); err != nil {
 		return c, fmt.Errorf("create concept %s: saved but failed to update log: %w", conceptID, err)
+	}
+
+	// Check links after write and warn about broken ones.
+	brokenLinks, linkErr := CheckConceptLinks(bundlePath, conceptID)
+	if linkErr == nil && len(brokenLinks) > 0 {
+		for _, bl := range brokenLinks {
+			fmt.Fprintf(os.Stderr, `{"severity":"warning","source":"%s","link_target":"%s","resolved_id":"%s","message":"broken link"}
+`, bl.SourceID, bl.LinkTarget, bl.ResolvedID)
+		}
 	}
 
 	return c, nil

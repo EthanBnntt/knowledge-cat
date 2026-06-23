@@ -20,6 +20,7 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
 	"strings"
@@ -72,6 +73,8 @@ with the OKF bundle. Tools exposed:
   - know_generate_index : generate index.md files
   - know_edit_concept   : edit a concept's body
   - know_read_log       : read the bundle's change log
+  - know_links          : show outgoing and incoming links for a concept
+  - know_follow_link    : follow a markdown link from one concept to another
 
 Set the OKF_BUNDLE environment variable or use --bundle to specify the bundle path.`,
 	RunE: func(cmd *cobra.Command, args []string) error {
@@ -124,14 +127,7 @@ Supports block addressing:
 			// Read just the block.
 			block := knowledge_cat.GetBlock(c.Body, blockID)
 			if block == nil {
-				// List available blocks.
-				blocks := knowledge_cat.ParseBlocks(c.Body)
-				ids := make([]string, len(blocks))
-				for i, bl := range blocks {
-					ids[i] = bl.ID
-				}
-				return fmt.Errorf("block %q not found in %s. Available blocks: %s",
-					blockID, conceptID, strings.Join(ids, ", "))
+				return fmt.Errorf("%s", knowledge_cat.BlockNotFoundMessage(conceptID, blockID, c.Body))
 			}
 			fmt.Printf("%s#%s\n", conceptID, blockID)
 			fmt.Println(strings.Repeat("-", 40))
@@ -254,6 +250,7 @@ var (
 	editOld         string
 	editNew         string
 	editDescription string
+	validateFormat  string
 )
 
 var findCmd = &cobra.Command{
@@ -296,10 +293,11 @@ var validateCmd = &cobra.Command{
 	Long: `Check the OKF bundle for conformance with the v0.1 spec.
 
 Reports conformance errors (required type field, parseable frontmatter),
-warnings (missing recommended fields, index/log format issues), and
+warnings (missing recommended fields, index/log format issues, broken links), and
 informational notes (missing index.md files).
 
-Exit code 0 if no errors, 1 if errors found.`,
+With --format json, outputs the full validation result as a single JSON object
+for machine consumption. Exit code 0 if no errors, 1 if errors found.`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		path, err := resolveBundlePath()
 		if err != nil {
@@ -309,6 +307,19 @@ Exit code 0 if no errors, 1 if errors found.`,
 		result, err := knowledge_cat.Validate(path)
 		if err != nil {
 			return err
+		}
+
+		if validateFormat == "json" {
+			// Machine-readable JSON output.
+			data, err := json.MarshalIndent(result, "", "  ")
+			if err != nil {
+				return fmt.Errorf("marshal validation result: %w", err)
+			}
+			fmt.Println(string(data))
+			if !result.Valid {
+				return fmt.Errorf("validation failed with %d error(s)", len(result.Errors))
+			}
+			return nil
 		}
 
 		// Print errors.
@@ -436,6 +447,184 @@ var typesCmd = &cobra.Command{
 	},
 }
 
+var linksCmd = &cobra.Command{
+	Use:   "links <concept-id>",
+	Short: "Show outgoing and incoming links for a concept",
+	Long: `Display the link graph for a concept: what it links to (outgoing)
+and what links to it (backlinks/incoming).
+
+Resolves relative and absolute markdown links to concept IDs,
+enriching each with its type and title. Broken links and external
+URLs are excluded from the outgoing list.
+
+Examples:
+  know links tables/orders           # show link graph for orders
+  know links tables/orders -b ./bundle`,
+	Args: cobra.ExactArgs(1),
+	RunE: func(cmd *cobra.Command, args []string) error {
+		b, err := openBundle()
+		if err != nil {
+			return err
+		}
+
+		result, err := b.LinksOf(args[0])
+		if err != nil {
+			return err
+		}
+
+		if len(result.Outgoing) > 0 {
+			fmt.Println("Outgoing links:")
+			for _, t := range result.Outgoing {
+				frag := ""
+				if t.Fragment != "" {
+					frag = "#" + t.Fragment
+				}
+				fmt.Printf("  %-40s  %-20s  %s%s\n", t.ID, t.Type, t.Title, frag)
+			}
+		} else {
+			fmt.Println("No outgoing links.")
+		}
+
+		fmt.Println()
+		if len(result.Incoming) > 0 {
+			fmt.Println("Incoming links (backlinks):")
+			for _, t := range result.Incoming {
+				fmt.Printf("  %-40s  %-20s  %s\n", t.ID, t.Type, t.Title)
+			}
+		} else {
+			fmt.Println("No incoming links (backlinks).")
+		}
+
+		return nil
+	},
+}
+
+var followCmd = &cobra.Command{
+	Use:   "follow <concept-id> <link-target>",
+	Short: "Follow a markdown link from one concept to another",
+	Long: `Resolve a raw markdown link target from a source concept and display
+the linked concept.
+
+The link target should be exactly as it appears in the markdown body:
+  know follow tables/orders concept-two.md
+  know follow tables/orders /tables/badges.md#schema
+  know follow tables/orders ../sibling.md
+
+For fragment-only links (#block-id), prints just that block from the source.
+For external URLs (http/https), prints the URL.
+For broken links, prints an error and exits non-zero.`,
+	Args: cobra.ExactArgs(2),
+	RunE: func(cmd *cobra.Command, args []string) error {
+		b, err := openBundle()
+		if err != nil {
+			return err
+		}
+
+		result, err := b.FollowLink(args[0], args[1])
+		if err != nil {
+			return err
+		}
+
+		if result.External {
+			fmt.Printf("External link: %s\n", result.ExternalURL)
+			return nil
+		}
+
+		if result.SameConcept {
+			fmt.Printf("Fragment link within %s", result.SourceID)
+			if result.Fragment != "" {
+				fmt.Printf("#%s", result.Fragment)
+				block := knowledge_cat.GetBlock(result.Target.Body, result.Fragment)
+				if block != nil {
+					fmt.Printf("\n%s\n", strings.Repeat("-", 40))
+					fmt.Println(block.Content)
+					return nil
+				}
+				fmt.Printf(" (block %q not found)\n", result.Fragment)
+				return nil
+			}
+			fmt.Println()
+			return nil
+		}
+
+		if result.Target != nil {
+			fmt.Printf("Followed link: %s → %s", result.SourceID, result.Target.ID)
+			if result.Fragment != "" {
+				fmt.Printf("#%s", result.Fragment)
+			}
+			fmt.Printf("\n%s\n", strings.Repeat("-", 40))
+			os.Stdout.Write(result.Target.Marshal())
+			return nil
+		}
+
+		return fmt.Errorf("follow: unexpected empty result for %q → %q", args[0], args[1])
+	},
+}
+
+var checkLinksCmd = &cobra.Command{
+	Use:   "check-links [concept-id]",
+	Short: "Check for broken cross-concept links",
+	Long: `Check cross-concept markdown links for broken references.
+
+Without arguments, checks all concepts in the bundle and reports any broken
+links (references to concepts that don't exist). With an optional concept ID,
+checks only that concept's outgoing links.
+
+Output is JSON by default for machine consumption. Use --format text for
+human-readable output.
+
+Examples:
+  know check-links                       # check all links
+  know check-links tables/orders          # check links from one concept
+  know check-links --format text          # human-readable output`,
+	Args: cobra.RangeArgs(0, 1),
+	RunE: func(cmd *cobra.Command, args []string) error {
+		path, err := resolveBundlePath()
+		if err != nil {
+			return err
+		}
+
+		var broken []knowledge_cat.BrokenLink
+
+		if len(args) == 1 {
+			broken, err = knowledge_cat.CheckConceptLinks(path, args[0])
+		} else {
+			broken, err = knowledge_cat.CheckAllLinks(path)
+		}
+		if err != nil {
+			return err
+		}
+
+		if checkLinksFormat == "json" {
+			if len(broken) == 0 {
+				fmt.Println("[]")
+			} else {
+				data, err := json.MarshalIndent(broken, "", "  ")
+				if err != nil {
+					return fmt.Errorf("marshal broken links: %w", err)
+				}
+				fmt.Println(string(data))
+			}
+		} else {
+			if len(broken) == 0 {
+				fmt.Println("No broken links found.")
+			} else {
+				fmt.Printf("Broken links (%d):\n", len(broken))
+				for _, bl := range broken {
+					fmt.Printf("  %s → %s (resolved to %q)\n", bl.SourceID, bl.LinkTarget, bl.ResolvedID)
+				}
+			}
+		}
+
+		if len(broken) > 0 {
+			return fmt.Errorf("found %d broken link(s)", len(broken))
+		}
+		return nil
+	},
+}
+
+var checkLinksFormat string
+
 func init() {
 	rootCmd.PersistentFlags().StringVarP(&bundlePath, "bundle", "b", "", "Path to OKF bundle (defaults to current directory)")
 	editCmd.Flags().StringVar(&editOld, "old", "", "Existing text to replace (required)")
@@ -452,6 +641,7 @@ func init() {
 	createCmd.Flags().StringVar(&createBody, "body", "", "Markdown body content (reads from stdin if not provided)")
 	createCmd.MarkFlagRequired("type")
 	generateIndexCmd.Flags().BoolVar(&genOverwrite, "overwrite", false, "Overwrite existing index.md files")
+	validateCmd.Flags().StringVar(&validateFormat, "format", "text", "Output format: 'text' (default) or 'json'")
 	rootCmd.AddCommand(serveCmd)
 	rootCmd.AddCommand(listCmd)
 	rootCmd.AddCommand(readCmd)
@@ -463,6 +653,10 @@ func init() {
 	rootCmd.AddCommand(generateIndexCmd)
 	rootCmd.AddCommand(logCmd)
 	rootCmd.AddCommand(typesCmd)
+	rootCmd.AddCommand(linksCmd)
+	rootCmd.AddCommand(followCmd)
+	rootCmd.AddCommand(checkLinksCmd)
+	checkLinksCmd.Flags().StringVar(&checkLinksFormat, "format", "json", "Output format: 'json' (default) or 'text'")
 }
 
 // openBundle opens the OKF bundle from the configured path.
@@ -477,13 +671,6 @@ func openBundle() (*knowledge_cat.Bundle, error) {
 
 // resolveBundlePath returns the bundle path from the --bundle flag or CWD.
 func resolveBundlePath() (string, error) {
-	if bundlePath != "" {
-		return bundlePath, nil
-	}
-	cwd, err := os.Getwd()
-	if err != nil {
-		return "", fmt.Errorf("getting current directory: %w", err)
-	}
-	return cwd, nil
+	return knowledge_cat.ResolveBundlePath(bundlePath)
 }
 

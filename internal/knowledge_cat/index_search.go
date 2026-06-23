@@ -19,18 +19,18 @@ type indexEntry struct {
 
 // HeadingMatch represents a match in a concept's markdown headings.
 type HeadingMatch struct {
-	Heading  string // e.g., "Schema", "Common query patterns"
-	Level    int    // heading level (1 = #, 2 = ##, etc.)
-	Snippet  string // first ~200 chars of content under the heading
+	Heading string `json:"heading"` // e.g., "Schema", "Common query patterns"
+	Level   int    `json:"level"`   // heading level (1 = #, 2 = ##, etc.)
+	Snippet string `json:"snippet"` // first ~200 chars of content under the heading
 }
 
 // IndexMatch represents a match from an index.md entry.
 type IndexMatch struct {
-	IndexPath   string // e.g., "tables/index.md"
-	Section     string // e.g., "BigQuery Table"
-	ConceptID   string // derived from the URL, e.g., "tables/badges"
-	ConceptTitle string // the link text
-	Description string // the index entry description
+	IndexPath    string `json:"index_path"`    // e.g., "tables/index.md"
+	Section      string `json:"section"`       // e.g., "BigQuery Table"
+	ConceptID    string `json:"concept_id"`    // derived from the URL, e.g., "tables/badges"
+	ConceptTitle string `json:"concept_title"` // the link text
+	Description  string `json:"description"`   // the index entry description
 }
 
 // FindResult bundles all matches for a single concept from a find search.
@@ -260,29 +260,8 @@ func extractHeadingMatches(body, query string) []HeadingMatch {
 }
 
 // deriveConceptID converts an index entry URL to a concept ID relative to the bundle root.
-// For example, with indexDir = "tables" and url = "badges.md" → "tables/badges".
-// With url = "../other/foo.md" → resolves relative path.
-// With url = "subdir/" → strips trailing slash and appends "/index".
+// Delegates to resolveLinkTarget with a synthetic source in the index directory.
 func deriveConceptID(url, indexDir string) string {
-	// Remove .md suffix if present.
-	url = strings.TrimSuffix(url, ".md")
-
-	// If URL is a directory reference (ends with /), strip the slash.
-	url = strings.TrimSuffix(url, "/")
-
-	// If the URL starts with /, it's absolute from bundle root.
-	if strings.HasPrefix(url, "/") {
-		return strings.TrimPrefix(url, "/")
-	}
-
-	// Resolve relative to the index file's directory.
-	if indexDir == "." {
-		return url
-	}
-
-	resolved := filepath.Join(indexDir, url)
-	// Clean up any ../ navigation.
-	resolved = filepath.Clean(resolved)
-	return resolved
+	return resolveLinkTarget(url, indexDir+"/_").ConceptID
 }
 

@@ -110,43 +110,43 @@ func TestFindBlockForLine(t *testing.T) {
 	body := "Preamble\n\n# First\nLine 1\nLine 2\nLine 3\n\n# Second\nLine 4"
 
 	// Line 1: "Preamble" — in top block.
-	b := FindBlockForLine(body, 1)
+	b := findBlockForLine(body, 1)
 	if b == nil || b.ID != "top" {
 		t.Errorf("line 1: got %v, want 'top'", b)
 	}
 
 	// Line 2: blank — in top block.
-	b = FindBlockForLine(body, 2)
+	b = findBlockForLine(body, 2)
 	if b == nil || b.ID != "top" {
 		t.Errorf("line 2 (blank): got %v, want 'top'", b)
 	}
 
 	// Line 3: "# First" — heading line belongs to first block.
-	b = FindBlockForLine(body, 3)
+	b = findBlockForLine(body, 3)
 	if b == nil || b.ID != "first" {
 		t.Errorf("line 3 (heading): got %v, want 'first'", b)
 	}
 
 	// Line 4: "Line 1" — content of first block.
-	b = FindBlockForLine(body, 4)
+	b = findBlockForLine(body, 4)
 	if b == nil || b.ID != "first" {
 		t.Errorf("line 4: got %v, want 'first'", b)
 	}
 
 	// Line 9: "Line 4" — content of second block.
-	b = FindBlockForLine(body, 9)
+	b = findBlockForLine(body, 9)
 	if b == nil || b.ID != "second" {
 		t.Errorf("line 9: got %v, want 'second'", b)
 	}
 
 	// Past end.
-	b = FindBlockForLine(body, 100)
+	b = findBlockForLine(body, 100)
 	if b != nil {
 		t.Error("line 100 should return nil")
 	}
 
 	// Empty body.
-	if FindBlockForLine("", 1) != nil {
+	if findBlockForLine("", 1) != nil {
 		t.Error("empty body should return nil")
 	}
 }
@@ -176,7 +176,7 @@ func TestSlugify(t *testing.T) {
 func TestTagListUnmarshalYAML(t *testing.T) {
 	// Comma-separated string (scalar).
 	content := []byte("---\ntype: Test\ntags: a, b, c\n---\nbody")
-	c, err := ParseConcept("test", content)
+	c, err := parseConcept("test", content)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -186,7 +186,7 @@ func TestTagListUnmarshalYAML(t *testing.T) {
 
 	// YAML list.
 	content = []byte("---\ntype: Test\ntags:\n  - x\n  - y\n---\nbody")
-	c, err = ParseConcept("test", content)
+	c, err = parseConcept("test", content)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -196,7 +196,7 @@ func TestTagListUnmarshalYAML(t *testing.T) {
 
 	// Comma-separated with spaces.
 	content = []byte("---\ntype: Test\ntags: \"one, two, three\"\n---\nbody")
-	c, err = ParseConcept("test", content)
+	c, err = parseConcept("test", content)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -214,7 +214,7 @@ func TestTagTimeUnmarshalYAML(t *testing.T) {
 	}
 	for _, ts := range tests {
 		content := []byte(fmt.Sprintf("---\ntype: Test\ntimestamp: %s\n---\nbody", ts))
-		c, err := ParseConcept("test", content)
+		c, err := parseConcept("test", content)
 		if err != nil {
 			t.Errorf("timestamp %q: ParseConcept failed: %v", ts, err)
 			continue
@@ -226,7 +226,7 @@ func TestTagTimeUnmarshalYAML(t *testing.T) {
 
 	// Invalid timestamp.
 	content := []byte("---\ntype: Test\ntimestamp: not-a-date\n---\nbody")
-	_, err := ParseConcept("test", content)
+	_, err := parseConcept("test", content)
 	if err == nil {
 		t.Error("expected error for invalid timestamp")
 	}
@@ -234,13 +234,13 @@ func TestTagTimeUnmarshalYAML(t *testing.T) {
 
 func TestParseConceptErrors(t *testing.T) {
 	// No frontmatter.
-	_, err := ParseConcept("test", []byte("just body"))
+	_, err := parseConcept("test", []byte("just body"))
 	if err == nil {
 		t.Error("expected error for missing frontmatter")
 	}
 
 	// Missing type.
-	_, err = ParseConcept("test", []byte("---\ntitle: NoType\n---\nbody"))
+	_, err = parseConcept("test", []byte("---\ntitle: NoType\n---\nbody"))
 	if err == nil {
 		t.Error("expected error for missing type")
 	}
@@ -293,7 +293,7 @@ func TestWriteConcept(t *testing.T) {
 		Tags:        []string{"a", "b"},
 		Body:        "# Body\nContent.",
 	}
-	if err := WriteConcept(dir, c); err != nil {
+	if err := writeConcept(dir, c); err != nil {
 		t.Fatal(err)
 	}
 
@@ -302,7 +302,7 @@ func TestWriteConcept(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	parsed, err := ParseConcept("test/concept", content)
+	parsed, err := parseConcept("test/concept", content)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -454,7 +454,7 @@ func TestAppendLog(t *testing.T) {
 	dir := t.TempDir()
 
 	// First entry creates log.md.
-	err := AppendLog(dir, LogEntry{Action: "Creation", Description: "Initial concept."})
+	err := appendLog(dir, LogEntry{Action: "Creation", Description: "Initial concept."})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -469,7 +469,7 @@ func TestAppendLog(t *testing.T) {
 	}
 
 	// Second entry appends under same date.
-	err = AppendLog(dir, LogEntry{Action: "Update", Description: "Updated schema."})
+	err = appendLog(dir, LogEntry{Action: "Update", Description: "Updated schema."})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -528,27 +528,6 @@ func TestSearch(t *testing.T) {
 	results = b.Search("zzznonexistentzzz", nil)
 	if len(results) != 0 {
 		t.Errorf("expected 0 results, got %d", len(results))
-	}
-}
-
-func TestHasAnyTag(t *testing.T) {
-	if !hasAnyTag([]string{"a", "b"}, []string{"a"}) {
-		t.Error("should match")
-	}
-	if hasAnyTag([]string{"a", "b"}, []string{"c"}) {
-		t.Error("should not match")
-	}
-	if hasAnyTag([]string{}, []string{"a"}) {
-		t.Error("empty tags should not match")
-	}
-}
-
-func TestContainsType(t *testing.T) {
-	if !containsType([]string{"a", "b"}, "a") {
-		t.Error("should contain")
-	}
-	if containsType([]string{"a", "b"}, "c") {
-		t.Error("should not contain")
 	}
 }
 
@@ -629,42 +608,51 @@ func TestValidateLogFile(t *testing.T) {
 
 func TestResolveLinkTarget(t *testing.T) {
 	// External URL.
-	if resolveLinkTarget("https://example.com", "source") != "" {
-		t.Error("external URL should return empty")
+	r := resolveLinkTarget("https://example.com", "source")
+	if !r.External || r.ExternalURL != "https://example.com" {
+		t.Errorf("external: %+v", r)
 	}
-	if resolveLinkTarget("http://example.com", "source") != "" {
-		t.Error("http URL should return empty")
+	r = resolveLinkTarget("http://example.com", "source")
+	if !r.External {
+		t.Error("http URL should be External")
 	}
 
 	// Fragment only.
-	if resolveLinkTarget("#schema", "source") != "" {
-		t.Error("fragment-only should return empty (same concept)")
+	r = resolveLinkTarget("#schema", "source")
+	if r.ConceptID != "" || r.Fragment != "schema" {
+		t.Errorf("fragment-only: %+v", r)
 	}
 
 	// Absolute.
-	if got := resolveLinkTarget("/tables/orders.md", "source"); got != "tables/orders" {
-		t.Errorf("absolute link = %q, want 'tables/orders'", got)
+	r = resolveLinkTarget("/tables/orders.md", "source")
+	if r.ConceptID != "tables/orders" {
+		t.Errorf("absolute link = %q, want 'tables/orders'", r.ConceptID)
 	}
-	if got := resolveLinkTarget("/tables/orders", "source"); got != "tables/orders" {
-		t.Errorf("absolute link no ext = %q, want 'tables/orders'", got)
+	r = resolveLinkTarget("/tables/orders", "source")
+	if r.ConceptID != "tables/orders" {
+		t.Errorf("absolute link no ext = %q, want 'tables/orders'", r.ConceptID)
 	}
 
 	// Relative.
-	if got := resolveLinkTarget("other.md", "dir/source"); got != "dir/other" {
-		t.Errorf("relative link = %q, want 'dir/other'", got)
+	r = resolveLinkTarget("other.md", "dir/source")
+	if r.ConceptID != "dir/other" {
+		t.Errorf("relative link = %q, want 'dir/other'", r.ConceptID)
 	}
-	if got := resolveLinkTarget("../sibling.md", "dir/sub/source"); got != "dir/sibling" {
-		t.Errorf("parent relative = %q, want 'dir/sibling'", got)
-	}
-
-	// With fragment — .md stripped first, then #block removed.
-	if got := resolveLinkTarget("target.md#block", "source"); got != "target" {
-		t.Errorf("with fragment = %q, want 'target'", got)
+	r = resolveLinkTarget("../sibling.md", "dir/sub/source")
+	if r.ConceptID != "dir/sibling" {
+		t.Errorf("parent relative = %q, want 'dir/sibling'", r.ConceptID)
 	}
 
-	// Fragment-only in same concept.
-	if got := resolveLinkTarget("concept.md#section", "concept"); got != "concept" {
-		t.Errorf("same-concept fragment = %q, want 'concept'", got)
+	// With fragment — .md stripped, fragment extracted.
+	r = resolveLinkTarget("target.md#block", "source")
+	if r.ConceptID != "target" || r.Fragment != "block" {
+		t.Errorf("with fragment = %+v, want ConceptID='target' Fragment='block'", r)
+	}
+
+	// Same-concept fragment (concept.md#section resolves to concept ID + fragment).
+	r = resolveLinkTarget("concept.md#section", "concept")
+	if r.ConceptID != "concept" || r.Fragment != "section" {
+		t.Errorf("same-concept fragment = %+v, want ConceptID='concept' Fragment='section'", r)
 	}
 }
 
@@ -908,6 +896,243 @@ func TestDeriveConceptID(t *testing.T) {
 }
 
 // ============================================================================
+// LinksOf tests
+// ============================================================================
+
+func makeTestLinkBundle(t *testing.T) string {
+	t.Helper()
+	dir := t.TempDir()
+
+	// concept-one: links to concept-two (relative), an external URL, and a fragment.
+	conceptOne := `---
+type: Test Type
+title: Concept One
+description: First concept.
+---
+
+# Overview
+Link to [concept two](concept-two.md).
+Also [external](https://example.com) and [a fragment](#heading).
+`
+	// concept-two: links back to concept-one (same-directory relative).
+	conceptTwo := `---
+type: Other Type
+title: Concept Two
+description: Second concept.
+---
+
+# Details
+See [concept one](concept-one.md) for context.
+`
+	// concept-three: no links.
+	conceptThree := `---
+type: Test Type
+title: Concept Three
+description: No links here.
+---
+
+# Content
+Just body text with no links.
+`
+
+	os.WriteFile(filepath.Join(dir, "concept-one.md"), []byte(conceptOne), 0o644)
+	os.WriteFile(filepath.Join(dir, "concept-two.md"), []byte(conceptTwo), 0o644)
+	os.WriteFile(filepath.Join(dir, "concept-three.md"), []byte(conceptThree), 0o644)
+	return dir
+}
+
+func TestLinksOf(t *testing.T) {
+	dir := makeTestLinkBundle(t)
+	b, err := Open(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	result, err := b.LinksOf("concept-one")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if result.ConceptID != "concept-one" {
+		t.Errorf("ConceptID = %q, want 'concept-one'", result.ConceptID)
+	}
+	if result.ConceptTitle != "Concept One" {
+		t.Errorf("ConceptTitle = %q, want 'Concept One'", result.ConceptTitle)
+	}
+
+	// Outgoing: should only have concept-two (external and fragment-only excluded).
+	if len(result.Outgoing) != 1 {
+		t.Fatalf("expected 1 outgoing link, got %d: %v", len(result.Outgoing), result.Outgoing)
+	}
+	if result.Outgoing[0].ID != "concept-two" {
+		t.Errorf("outgoing[0].ID = %q, want 'concept-two'", result.Outgoing[0].ID)
+	}
+	if result.Outgoing[0].Type != "Other Type" {
+		t.Errorf("outgoing[0].Type = %q, want 'Other Type'", result.Outgoing[0].Type)
+	}
+	if result.Outgoing[0].Title != "Concept Two" {
+		t.Errorf("outgoing[0].Title = %q, want 'Concept Two'", result.Outgoing[0].Title)
+	}
+
+	// concept-one receives 1 incoming backlink from concept-two in the fixture.
+	if len(result.Incoming) != 1 {
+		t.Fatalf("expected 1 incoming backlink from concept-two, got %d", len(result.Incoming))
+	}
+	if result.Incoming[0].ID != "concept-two" {
+		t.Errorf("incoming[0].ID = %q, want 'concept-two'", result.Incoming[0].ID)
+	}
+}
+
+func TestLinksOfBacklinks(t *testing.T) {
+	dir := makeTestLinkBundle(t)
+	b, err := Open(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// concept-one should have 1 incoming backlink from concept-two.
+	result, err := b.LinksOf("concept-one")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(result.Incoming) != 1 {
+		t.Fatalf("expected 1 incoming link from concept-two, got %d", len(result.Incoming))
+	}
+	if result.Incoming[0].ID != "concept-two" {
+		t.Errorf("incoming[0].ID = %q, want 'concept-two'", result.Incoming[0].ID)
+	}
+
+	// concept-two should have 1 incoming from concept-one (mutual link).
+	result, err = b.LinksOf("concept-two")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(result.Incoming) != 1 {
+		t.Errorf("expected 1 incoming for concept-two (from concept-one), got %d", len(result.Incoming))
+	}
+	if result.Incoming[0].ID != "concept-one" {
+		t.Errorf("incoming[0].ID = %q, want 'concept-one'", result.Incoming[0].ID)
+	}
+	// But should have outgoing to concept-one.
+	if len(result.Outgoing) != 1 {
+		t.Fatalf("expected 1 outgoing from concept-two, got %d", len(result.Outgoing))
+	}
+	if result.Outgoing[0].ID != "concept-one" {
+		t.Errorf("outgoing[0].ID = %q, want 'concept-one'", result.Outgoing[0].ID)
+	}
+}
+
+func TestLinksOfMissing(t *testing.T) {
+	dir := makeTestLinkBundle(t)
+	b, err := Open(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	_, err = b.LinksOf("nonexistent")
+	if err == nil {
+		t.Error("expected error for nonexistent concept")
+	}
+	if !strings.Contains(err.Error(), "not found") {
+		t.Errorf("error message = %q, want 'not found'", err.Error())
+	}
+}
+
+func TestLinksOfNoLinks(t *testing.T) {
+	dir := makeTestLinkBundle(t)
+	b, err := Open(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	result, err := b.LinksOf("concept-three")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(result.Outgoing) != 0 {
+		t.Errorf("expected 0 outgoing links, got %d", len(result.Outgoing))
+	}
+	if len(result.Incoming) != 0 {
+		t.Errorf("expected 0 incoming links, got %d", len(result.Incoming))
+	}
+}
+
+func TestLinksOfBrokenLink(t *testing.T) {
+	dir := t.TempDir()
+
+	source := `---
+type: Test
+title: Source
+---
+Link to [missing](missing.md) and [present](target.md).
+`
+	target := `---
+type: Test
+title: Target
+---
+Body.
+`
+	os.WriteFile(filepath.Join(dir, "source.md"), []byte(source), 0o644)
+	os.WriteFile(filepath.Join(dir, "target.md"), []byte(target), 0o644)
+
+	b, err := Open(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	result, err := b.LinksOf("source")
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Only 'target' should appear; 'missing' is silently omitted.
+	if len(result.Outgoing) != 1 {
+		t.Fatalf("expected 1 outgoing link (broken omitted), got %d", len(result.Outgoing))
+	}
+	if result.Outgoing[0].ID != "target" {
+		t.Errorf("outgoing[0].ID = %q, want 'target'", result.Outgoing[0].ID)
+	}
+}
+
+func TestLinksOfFragmentPreservation(t *testing.T) {
+	dir := t.TempDir()
+
+	source := `---
+type: Test
+title: Source
+---
+Link with [fragment](target.md#schema).
+`
+	target := `---
+type: Test
+title: Target
+---
+# Schema
+Schema content.
+`
+	os.WriteFile(filepath.Join(dir, "source.md"), []byte(source), 0o644)
+	os.WriteFile(filepath.Join(dir, "target.md"), []byte(target), 0o644)
+
+	b, err := Open(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	result, err := b.LinksOf("source")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(result.Outgoing) != 1 {
+		t.Fatalf("expected 1 outgoing link, got %d", len(result.Outgoing))
+	}
+	if result.Outgoing[0].Fragment != "schema" {
+		t.Errorf("Fragment = %q, want 'schema'", result.Outgoing[0].Fragment)
+	}
+	if result.Outgoing[0].ID != "target" {
+		t.Errorf("ID = %q, want 'target'", result.Outgoing[0].ID)
+	}
+}
+
+// ============================================================================
 // Error path tests
 // ============================================================================
 
@@ -947,7 +1172,7 @@ func TestWriteConceptErrors(t *testing.T) {
 	dir := t.TempDir()
 	os.MkdirAll(filepath.Join(dir, "sub"), 0o555) // read-only subdir
 	c := &Concept{ID: "sub/nope", Type: "T", Body: "x"}
-	err := WriteConcept(dir, c)
+	err := writeConcept(dir, c)
 	if err == nil {
 		t.Error("expected error writing to read-only directory")
 	}
@@ -957,7 +1182,7 @@ func TestAppendLogErrors(t *testing.T) {
 	// Write to read-only directory.
 	dir := t.TempDir()
 	os.Chmod(dir, 0o555)
-	err := AppendLog(dir, LogEntry{Action: "Test"})
+	err := appendLog(dir, LogEntry{Action: "Test"})
 	if err == nil {
 		t.Error("expected error writing log to read-only dir")
 	}
@@ -974,7 +1199,7 @@ func TestMarshalConcept(t *testing.T) {
 		Body:        "body text",
 	}
 	content := c.Marshal()
-	parsed, err := ParseConcept("test", content)
+	parsed, err := parseConcept("test", content)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -989,5 +1214,292 @@ func TestMarshalConcept(t *testing.T) {
 	}
 	if parsed.Body != c.Body {
 		t.Errorf("body = %q", parsed.Body)
+	}
+}
+
+// ============================================================================
+// FollowLink tests
+// ============================================================================
+
+func makeFollowLinkFixture(t *testing.T) string {
+	t.Helper()
+	dir := t.TempDir()
+
+	source := `---
+type: Source
+---
+[local](target.md) [frag](target.md#schema) [external](https://example.com) [#same](#top) [broken](missing.md)
+`
+	target := `---
+type: Target
+---
+# Schema
+Schema content.
+`
+	os.WriteFile(filepath.Join(dir, "source.md"), []byte(source), 0o644)
+	os.WriteFile(filepath.Join(dir, "target.md"), []byte(target), 0o644)
+	return dir
+}
+
+func TestFollowLinkRelative(t *testing.T) {
+	dir := makeFollowLinkFixture(t)
+	b, err := Open(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	result, err := b.FollowLink("source", "target.md")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Target == nil {
+		t.Fatal("expected target concept")
+	}
+	if result.Target.ID != "target" {
+		t.Errorf("Target.ID = %q, want 'target'", result.Target.ID)
+	}
+	if result.ResolvedID != "target" {
+		t.Errorf("ResolvedID = %q, want 'target'", result.ResolvedID)
+	}
+	if result.External || result.SameConcept || result.Broken {
+		t.Error("flags should all be false for valid link")
+	}
+}
+
+func TestFollowLinkWithFragment(t *testing.T) {
+	dir := makeFollowLinkFixture(t)
+	b, err := Open(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	result, err := b.FollowLink("source", "target.md#schema")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Target == nil {
+		t.Fatal("expected target concept")
+	}
+	if result.Target.ID != "target" {
+		t.Errorf("Target.ID = %q, want 'target'", result.Target.ID)
+	}
+	if result.Fragment != "schema" {
+		t.Errorf("Fragment = %q, want 'schema'", result.Fragment)
+	}
+}
+
+func TestFollowLinkExternal(t *testing.T) {
+	dir := makeFollowLinkFixture(t)
+	b, err := Open(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	result, err := b.FollowLink("source", "https://example.com")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !result.External {
+		t.Error("expected External=true")
+	}
+	if result.ExternalURL != "https://example.com" {
+		t.Errorf("ExternalURL = %q", result.ExternalURL)
+	}
+}
+
+func TestFollowLinkFragmentOnly(t *testing.T) {
+	dir := makeFollowLinkFixture(t)
+	b, err := Open(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	result, err := b.FollowLink("source", "#top")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !result.SameConcept {
+		t.Error("expected SameConcept=true")
+	}
+	if result.Fragment != "top" {
+		t.Errorf("Fragment = %q, want 'top'", result.Fragment)
+	}
+	if result.Target == nil || result.Target.ID != "source" {
+		t.Error("target should be source concept for fragment-only link")
+	}
+}
+
+func TestFollowLinkBroken(t *testing.T) {
+	dir := makeFollowLinkFixture(t)
+	b, err := Open(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	result, err := b.FollowLink("source", "missing.md")
+	if err == nil {
+		t.Error("expected error for broken link")
+	}
+	if result == nil {
+		t.Fatal("expected partial result even on error")
+	}
+	if !result.Broken {
+		t.Error("expected Broken=true")
+	}
+	if result.ResolvedID != "missing" {
+		t.Errorf("ResolvedID = %q, want 'missing'", result.ResolvedID)
+	}
+}
+
+func TestFollowLinkSourceNotFound(t *testing.T) {
+	dir := makeFollowLinkFixture(t)
+	b, err := Open(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	_, err = b.FollowLink("nonexistent", "target.md")
+	if err == nil {
+		t.Error("expected error for nonexistent source")
+	}
+}
+
+// ============================================================================
+// CheckConceptLinks tests
+// ============================================================================
+
+func TestCheckConceptLinksAllValid(t *testing.T) {
+	dir := t.TempDir()
+	os.WriteFile(filepath.Join(dir, "source.md"), []byte("---\ntype: S\n---\n[target](target.md) [external](https://example.com)\n"), 0o644)
+	os.WriteFile(filepath.Join(dir, "target.md"), []byte("---\ntype: T\n---\nBody\n"), 0o644)
+
+	broken, err := CheckConceptLinks(dir, "source")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(broken) != 0 {
+		t.Errorf("expected 0 broken links, got %d: %v", len(broken), broken)
+	}
+}
+
+func TestCheckConceptLinksHasBroken(t *testing.T) {
+	dir := t.TempDir()
+	os.WriteFile(filepath.Join(dir, "source.md"), []byte("---\ntype: S\n---\n[missing](missing.md) [valid](target.md)\n"), 0o644)
+	os.WriteFile(filepath.Join(dir, "target.md"), []byte("---\ntype: T\n---\nBody\n"), 0o644)
+
+	broken, err := CheckConceptLinks(dir, "source")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(broken) != 1 {
+		t.Fatalf("expected 1 broken link, got %d", len(broken))
+	}
+	if broken[0].SourceID != "source" {
+		t.Errorf("SourceID = %q", broken[0].SourceID)
+	}
+	if broken[0].LinkTarget != "missing.md" {
+		t.Errorf("LinkTarget = %q", broken[0].LinkTarget)
+	}
+	if broken[0].ResolvedID != "missing" {
+		t.Errorf("ResolvedID = %q", broken[0].ResolvedID)
+	}
+}
+
+func TestCheckConceptLinksSkipsExternalAndFragment(t *testing.T) {
+	dir := t.TempDir()
+	os.WriteFile(filepath.Join(dir, "source.md"), []byte("---\ntype: S\n---\n[ext](https://example.com) [#frag](#top)\n"), 0o644)
+
+	broken, err := CheckConceptLinks(dir, "source")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(broken) != 0 {
+		t.Errorf("expected 0 broken links (external/fragment skipped), got %d", len(broken))
+	}
+}
+
+func TestCheckConceptLinksConceptNotFound(t *testing.T) {
+	dir := t.TempDir()
+	_, err := CheckConceptLinks(dir, "nonexistent")
+	if err == nil {
+		t.Error("expected error for nonexistent concept")
+	}
+}
+
+// ============================================================================
+// CheckAllLinks tests
+// ============================================================================
+
+func TestCheckAllLinks(t *testing.T) {
+	dir := t.TempDir()
+	os.WriteFile(filepath.Join(dir, "alpha.md"), []byte("---\ntype: A\n---\n[beta](beta.md) [gamma](gamma.md)\n"), 0o644)
+	os.WriteFile(filepath.Join(dir, "beta.md"), []byte("---\ntype: B\n---\n[missing](missing.md)\n"), 0o644)
+	os.WriteFile(filepath.Join(dir, "gamma.md"), []byte("---\ntype: B\n---\nNo links.\n"), 0o644)
+
+	broken, err := CheckAllLinks(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Only beta → missing should be broken.
+	if len(broken) != 1 {
+		t.Fatalf("expected 1 broken link, got %d: %v", len(broken), broken)
+	}
+	if broken[0].SourceID != "beta" {
+		t.Errorf("SourceID = %q, want 'beta'", broken[0].SourceID)
+	}
+}
+
+func TestCheckAllLinksNone(t *testing.T) {
+	dir := t.TempDir()
+	os.WriteFile(filepath.Join(dir, "a.md"), []byte("---\ntype: A\n---\n[b](b.md)\n"), 0o644)
+	os.WriteFile(filepath.Join(dir, "b.md"), []byte("---\ntype: B\n---\n[a](a.md)\n"), 0o644)
+
+	broken, err := CheckAllLinks(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(broken) != 0 {
+		t.Errorf("expected 0 broken links, got %d", len(broken))
+	}
+}
+
+// ============================================================================
+// Validate with structured BrokenLinks tests
+// ============================================================================
+
+func TestValidateBrokenLinksStructured(t *testing.T) {
+	dir := t.TempDir()
+	os.WriteFile(filepath.Join(dir, "source.md"), []byte("---\ntype: S\ntitle: Source\n---\n[valid](target.md) [broken](missing.md)\n"), 0o644)
+	os.WriteFile(filepath.Join(dir, "target.md"), []byte("---\ntype: T\ntitle: Target\n---\nBody\n"), 0o644)
+
+	result, err := Validate(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Should have structured broken links.
+	if len(result.BrokenLinks) != 1 {
+		t.Fatalf("expected 1 structured broken link, got %d", len(result.BrokenLinks))
+	}
+	bl := result.BrokenLinks[0]
+	if bl.SourceID != "source" {
+		t.Errorf("SourceID = %q", bl.SourceID)
+	}
+	if bl.LinkTarget != "missing.md" {
+		t.Errorf("LinkTarget = %q", bl.LinkTarget)
+	}
+	if bl.ResolvedID != "missing" {
+		t.Errorf("ResolvedID = %q", bl.ResolvedID)
+	}
+
+	// Should also have a warning.
+	warningFound := false
+	for _, w := range result.Warnings {
+		if strings.Contains(w.Message, "broken link") {
+			warningFound = true
+		}
+	}
+	if !warningFound {
+		t.Error("expected warning about broken link")
 	}
 }

@@ -1,17 +1,26 @@
 package knowledge_cat
 
-import "strings"
+import (
+	"slices"
+	"strings"
+)
 
 // SearchResult represents a single match from a search query.
 type SearchResult struct {
-	Concept *Concept
+	Concept *Concept `json:"-"`
+	// ConceptID is the ID of the matching concept.
+	ConceptID string `json:"concept_id"`
+	// ConceptType is the type of the matching concept.
+	ConceptType string `json:"concept_type"`
+	// ConceptTitle is the title of the matching concept.
+	ConceptTitle string `json:"concept_title"`
 	// Field is where the match was found: "title", "description", "body".
-	Field string
+	Field string `json:"field"`
 	// Line is the matching line (or portion of body around the match).
-	Line string
+	Line string `json:"match"`
 	// BlockID is the block containing this match, if the match is in the body
-	// and the body has heading-delimited blocks. E.g., "schema", "citations".
-	BlockID string
+	// and the body has heading-delimited blocks.
+	BlockID string `json:"block_id,omitempty"`
 }
 
 // Search performs a case-insensitive text search across all concepts in the
@@ -24,7 +33,7 @@ func (b *Bundle) Search(query string, types []string) []SearchResult {
 
 	for _, c := range b.Concepts {
 		if len(types) > 0 {
-			if !containsType(types, c.Type) {
+			if !slices.Contains(types, c.Type) {
 				continue
 			}
 		}
@@ -32,18 +41,24 @@ func (b *Bundle) Search(query string, types []string) []SearchResult {
 		// Search title.
 		if matchLine(c.Title, query) {
 			results = append(results, SearchResult{
-				Concept: c,
-				Field:   "title",
-				Line:    c.Title,
+				Concept:      c,
+				ConceptID:    c.ID,
+				ConceptType:  c.Type,
+				ConceptTitle: c.Title,
+				Field:        "title",
+				Line:         c.Title,
 			})
 		}
 
 		// Search description.
 		if matchLine(c.Description, query) {
 			results = append(results, SearchResult{
-				Concept: c,
-				Field:   "description",
-				Line:    c.Description,
+				Concept:      c,
+				ConceptID:    c.ID,
+				ConceptType:  c.Type,
+				ConceptTitle: c.Title,
+				Field:        "description",
+				Line:         c.Description,
 			})
 		}
 
@@ -52,14 +67,17 @@ func (b *Bundle) Search(query string, types []string) []SearchResult {
 		for lineNum, line := range bodyLines {
 			if matchLine(line, query) {
 				blockID := ""
-				if b := FindBlockForLine(c.Body, lineNum+1); b != nil {
+				if b := findBlockForLine(c.Body, lineNum+1); b != nil {
 					blockID = b.ID
 				}
 				results = append(results, SearchResult{
-					Concept: c,
-					Field:   "body",
-					Line:    strings.TrimSpace(line),
-					BlockID: blockID,
+					Concept:      c,
+					ConceptID:    c.ID,
+					ConceptType:  c.Type,
+					ConceptTitle: c.Title,
+					Field:        "body",
+					Line:         strings.TrimSpace(line),
+					BlockID:      blockID,
 				})
 			}
 		}
@@ -71,16 +89,6 @@ func (b *Bundle) Search(query string, types []string) []SearchResult {
 // matchLine returns true if the line contains the query (case-insensitive).
 func matchLine(line, query string) bool {
 	return strings.Contains(strings.ToLower(line), query)
-}
-
-// containsType returns true if the slice contains the given type.
-func containsType(types []string, t string) bool {
-	for _, tt := range types {
-		if tt == t {
-			return true
-		}
-	}
-	return false
 }
 
 // TruncateString truncates s to maxLen characters, appending "..." if truncated.

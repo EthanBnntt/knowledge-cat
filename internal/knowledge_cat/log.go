@@ -10,16 +10,12 @@ import (
 
 // LogEntry represents a single entry in an OKF log.md file.
 type LogEntry struct {
-	// Date is the date the entry was created.
-	Date time.Time
-	// Action is a short label describing the type of change.
-	// Conventional values: "Update", "Creation", "Deprecation", "Deletion", "Edit".
-	Action string
-	// Description is the prose description of the change.
-	Description string
+	Date        time.Time `json:"date"`
+	Action      string    `json:"action"`
+	Description string    `json:"description"`
 }
 
-// AppendLog appends an entry to the log.md file at the bundle root.
+// appendLog appends an entry to the log.md file at the bundle root.
 // If log.md doesn't exist, it creates one with the standard header.
 //
 // The OKF spec describes log.md format as:
@@ -28,7 +24,7 @@ type LogEntry struct {
 //
 //	## 2026-05-22
 //	* **Update**: Description of the change.
-func AppendLog(bundlePath string, entry LogEntry) error {
+func appendLog(bundlePath string, entry LogEntry) error {
 	logPath := filepath.Join(bundlePath, "log.md")
 
 	// Read existing content if file exists.
